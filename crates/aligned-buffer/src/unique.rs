@@ -1,4 +1,7 @@
-use crate::raw::{RawAlignedBuffer, RawBufferError};
+use crate::{
+	raw::{RawAlignedBuffer, RawBufferError},
+	SharedAlignedBuffer,
+};
 use core::fmt;
 use std::{cmp, ops, ptr, slice::SliceIndex};
 
@@ -25,7 +28,7 @@ impl From<RawBufferError> for TryReserveError {
 /// [`SharedAlignedBuffer`]: crate::SharedAlignedBuffer
 pub struct UniqueAlignedBuffer<const ALIGNMENT: usize> {
 	pub(crate) buf: RawAlignedBuffer<ALIGNMENT>,
-	len: usize,
+	pub(crate) len: usize,
 }
 
 impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
@@ -798,6 +801,14 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 			// len set by scope guard
 		}
 	}
+
+	/// Converts a `UniqueAlignedBuffer` into a `SharedAlignedBuffer`
+	/// that can be safely cloned and shared between threads.
+	pub fn into_shared(mut self) -> SharedAlignedBuffer<ALIGNMENT> {
+		self.shrink_to_fit();
+		debug_assert_eq!(self.buf.capacity(), self.len());
+		SharedAlignedBuffer { buf: self.buf }
+	}
 }
 
 impl<const ALIGNMENT: usize> ops::Deref for UniqueAlignedBuffer<ALIGNMENT> {
@@ -913,6 +924,17 @@ impl<const ALIGNMENT: usize> AsMut<[u8]> for UniqueAlignedBuffer<ALIGNMENT> {
 	#[inline]
 	fn as_mut(&mut self) -> &mut [u8] {
 		self
+	}
+}
+
+impl<const ALIGNMENT: usize> TryFrom<SharedAlignedBuffer<ALIGNMENT>>
+	for UniqueAlignedBuffer<ALIGNMENT>
+{
+	type Error = SharedAlignedBuffer<ALIGNMENT>;
+
+	#[inline]
+	fn try_from(value: SharedAlignedBuffer<ALIGNMENT>) -> Result<Self, Self::Error> {
+		SharedAlignedBuffer::try_unique(value)
 	}
 }
 

@@ -434,6 +434,31 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		unsafe { alloc::dealloc(ptr as *mut u8, layout) };
 	}
 
+	/// Gets the number of shared references to this buffer.
+	#[inline]
+	pub fn ref_count(&self) -> usize {
+		if self.cap == 0 {
+			// if cap is zero, we've not allocated, and this instance consists only
+			// of owned stack data. It's thus safe to treat it as a unique instance
+			// which has ref-count of 1
+			1
+		} else {
+			// SAFETY: The pointer is non-null when cap is non-zero
+			let ptr = unsafe { self.buf.as_ptr().sub(Self::BUFFER_OFFSET) as *mut Header };
+
+			// SAFETY: We initialize the header when we allocate the buffer
+			let header = unsafe { &*ptr };
+
+			header.ref_count.load(atomic::Ordering::Acquire)
+		}
+	}
+
+	/// Wheather or not the buffer is unique (i.e. is the only reference to the buffer).
+	#[inline]
+	pub fn is_unique(&self) -> bool {
+		self.ref_count() == 1
+	}
+
 	/// Produces a by-ref clone for this buffer by incrementing the ref_count
 	/// and returning a pointer to the same allocation.
 	#[inline]

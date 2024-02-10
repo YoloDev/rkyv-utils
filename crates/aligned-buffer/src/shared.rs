@@ -6,7 +6,7 @@ use std::{fmt, ops, slice::SliceIndex};
 /// It can be cloned and shared across threads. It is effectively the same as an
 /// Arc<\[u8]>.
 pub struct SharedAlignedBuffer<const ALIGNMENT: usize> {
-	buf: RawAlignedBuffer<ALIGNMENT>,
+	pub(crate) buf: RawAlignedBuffer<ALIGNMENT>,
 }
 
 impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
@@ -116,6 +116,44 @@ impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
 	pub fn is_empty(&self) -> bool {
 		self.len() == 0
 	}
+
+	/// Whether or not the buffer is unique (i.e. is the only reference to the buffer).
+	#[inline]
+	pub fn is_unique(&self) -> bool {
+		self.buf.is_unique()
+	}
+
+	/// Returns the number of references to this buffer.
+	#[inline]
+	pub fn ref_count(&self) -> usize {
+		self.buf.ref_count()
+	}
+
+	/// Returns a [`UniqueAlignedBuffer`] if the [`SharedAlignedBuffer`] has exactly one reference.
+	///
+	/// Otherwise, an [`Err`] is returned with the same [`SharedAlignedBuffer`] that was
+	/// passed in.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use aligned_buffer::{UniqueAlignedBuffer, SharedAlignedBuffer};
+	///
+	/// let buf = UniqueAlignedBuffer::<16>::from_iter([1, 2, 3, 4]).into_shared();
+	/// assert!(SharedAlignedBuffer::try_unique(buf).is_ok());
+	///
+	/// let x = UniqueAlignedBuffer::<16>::from_iter([1, 2, 3, 4]).into_shared();
+	/// let _y = SharedAlignedBuffer::clone(&x);
+	/// assert!(SharedAlignedBuffer::try_unique(x).is_err());
+	/// ```
+	pub fn try_unique(this: Self) -> Result<UniqueAlignedBuffer<ALIGNMENT>, Self> {
+		if this.is_unique() {
+			let len = this.buf.capacity();
+			Ok(UniqueAlignedBuffer { buf: this.buf, len })
+		} else {
+			Err(this)
+		}
+	}
 }
 
 impl<const ALIGNMENT: usize> Clone for SharedAlignedBuffer<ALIGNMENT> {
@@ -129,10 +167,9 @@ impl<const ALIGNMENT: usize> Clone for SharedAlignedBuffer<ALIGNMENT> {
 impl<const ALIGNMENT: usize> From<UniqueAlignedBuffer<ALIGNMENT>>
 	for SharedAlignedBuffer<ALIGNMENT>
 {
-	fn from(mut buf: UniqueAlignedBuffer<ALIGNMENT>) -> Self {
-		buf.shrink_to_fit();
-		debug_assert_eq!(buf.buf.capacity(), buf.len());
-		Self { buf: buf.buf }
+	#[inline]
+	fn from(buf: UniqueAlignedBuffer<ALIGNMENT>) -> Self {
+		buf.into_shared()
 	}
 }
 
@@ -190,6 +227,13 @@ mod tests {
 		let buf = SharedAlignedBuffer::from(buf);
 		let buf2 = buf.clone();
 		assert_eq!(buf.as_ptr(), buf2.as_ptr());
+	}
+
+	#[test]
+	fn try_unique_returns_err_when_not_unique() {
+		let x = UniqueAlignedBuffer::<16>::from_iter([1, 2, 3, 4]).into_shared();
+		let _y = SharedAlignedBuffer::clone(&x);
+		assert!(SharedAlignedBuffer::try_unique(x).is_err());
 	}
 
 	// Check that the `SharedAlignedBuffer` is `Send` and `Sync`.
