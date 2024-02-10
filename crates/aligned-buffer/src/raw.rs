@@ -104,6 +104,14 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		Self { buf, cap }
 	}
 
+	/// Gets a raw pointer to the start of the allocation. Note that this is
+	/// `NonNull::dangling()` if `capacity == 0`, in which case, you must
+	/// be careful.
+	#[inline]
+	pub fn ptr(&self) -> *mut u8 {
+		self.buf.as_ptr()
+	}
+
 	/// Gets the capacity of the allocation.
 	#[inline(always)]
 	pub fn capacity(&self) -> usize {

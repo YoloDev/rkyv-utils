@@ -1,4 +1,4 @@
-use std::{alloc, cmp};
+use std::alloc;
 
 #[derive(Clone, Copy)]
 pub struct LayoutHelper {
