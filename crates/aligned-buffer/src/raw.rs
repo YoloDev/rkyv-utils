@@ -4,8 +4,9 @@ use self::layout::LayoutHelper;
 use std::{
 	alloc::{self, handle_alloc_error, Layout},
 	cmp, mem,
+	process::abort,
 	ptr::NonNull,
-	sync::atomic,
+	sync::atomic::{self, AtomicUsize},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -17,6 +18,12 @@ pub enum RawBufferError {
 	#[error("allocation error")]
 	AllocError { layout: Layout },
 }
+
+/// A soft limit on the amount of references that may be made to an `Arc`.
+///
+/// Going above this limit will abort your program (although not
+/// necessarily) at _exactly_ `MAX_REFCOUNT + 1` references.
+const MAX_REFCOUNT: usize = (isize::MAX) as usize;
 
 #[repr(C)]
 struct Header {
@@ -32,6 +39,9 @@ pub(crate) struct RawAlignedBuffer<const ALIGNMENT: usize> {
 	buf: NonNull<u8>,
 	cap: usize,
 }
+
+unsafe impl<const ALIGNMENT: usize> Send for RawAlignedBuffer<ALIGNMENT> {}
+unsafe impl<const ALIGNMENT: usize> Sync for RawAlignedBuffer<ALIGNMENT> {}
 
 impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	// Tiny Vecs are dumb. Skip to 8, because any heap allocators is likely
@@ -69,39 +79,18 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	}
 
 	pub fn with_capacity(size: usize) -> Self {
+		let mut buf = Self::new();
+
 		if size == 0 {
-			return Self::new();
-		}
-
-		let layout = match Self::layout(size) {
-			Ok(layout) => layout,
-			Err(_) => capacity_overflow(),
-		};
-
-		match alloc_guard(layout.size()) {
-			Ok(_) => {}
-			Err(_) => capacity_overflow(),
+			return buf;
 		}
 
 		// SAFETY:
-		// - The layout is not zero-sized, even if `size` is zero, because we extend it from the header layout.
-		let ptr = unsafe { alloc::alloc(layout) };
+		// - The size is non-zero
+		// - buf is new
+		handle_reserve(unsafe { buf.init(size) });
 
-		if ptr.is_null() {
-			handle_alloc_error(layout);
-		}
-
-		// SAFETY:
-		// - The pointer is non-null
-		// - The OFFSET is included in the layout that produced the pointer
-		let buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
-
-		// Allocators currently return a `NonNull<[u8]>` whose length
-		// matches the size requested. If that ever changes, the capacity
-		// here should change to `ptr.len() / mem::size_of::<T>()`.
-		let cap = size;
-
-		Self { buf, cap }
+		buf
 	}
 
 	/// Gets a raw pointer to the start of the allocation. Note that this is
@@ -133,8 +122,12 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// # Aborts
 	///
 	/// Aborts on OOM.
+	///
+	/// # Safety
+	///
+	/// Requires that the buffer only has a single reference to it.
 	#[inline]
-	pub fn reserve(&mut self, len: usize, additional: usize) {
+	pub unsafe fn reserve(&mut self, len: usize, additional: usize) {
 		// Callers expect this function to be very cheap when there is already sufficient capacity.
 		// Therefore, we move all the resizing and error-handling logic from grow_amortized and
 		// handle_reserve behind a call, while making sure that this function is likely to be
@@ -154,7 +147,15 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	}
 
 	/// The same as `reserve`, but returns on errors instead of panicking or aborting.
-	pub fn try_reserve(&mut self, len: usize, additional: usize) -> Result<(), RawBufferError> {
+	///
+	/// # Safety
+	///
+	/// Requires that the buffer only has a single reference to it.
+	pub unsafe fn try_reserve(
+		&mut self,
+		len: usize,
+		additional: usize,
+	) -> Result<(), RawBufferError> {
 		if self.needs_to_grow(len, additional) {
 			self.grow_amortized(len, additional)?;
 		}
@@ -179,12 +180,24 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// # Aborts
 	///
 	/// Aborts on OOM.
-	pub fn reserve_exact(&mut self, len: usize, additional: usize) {
+	///
+	/// # Safety
+	///
+	/// Requires that the buffer only has a single reference to it.
+	pub unsafe fn reserve_exact(&mut self, len: usize, additional: usize) {
 		handle_reserve(self.try_reserve_exact(len, additional));
 	}
 
 	/// The same as `reserve_exact`, but returns on errors instead of panicking or aborting.
-	pub fn try_reserve_exact(&mut self, len: usize, additional: usize) -> Result<(), RawBufferError> {
+	///
+	/// # Safety
+	///
+	/// Requires that the buffer only has a single reference to it.
+	pub unsafe fn try_reserve_exact(
+		&mut self,
+		len: usize,
+		additional: usize,
+	) -> Result<(), RawBufferError> {
 		if self.needs_to_grow(len, additional) {
 			self.grow_exact(len, additional)?;
 		}
@@ -202,7 +215,11 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// # Aborts
 	///
 	/// Aborts on OOM.
-	pub fn shrink_to_fit(&mut self, cap: usize) {
+	///
+	/// # Safety
+	///
+	/// Requires that the buffer only has a single reference to it.
+	pub unsafe fn shrink_to_fit(&mut self, cap: usize) {
 		handle_reserve(self.shrink(cap));
 	}
 
@@ -250,13 +267,15 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	#[inline(always)]
 	fn grow_to(&mut self, cap: usize) -> Result<(), RawBufferError> {
 		debug_assert!(cap > self.cap, "Tried to shrink or keep the same capacity");
+		if self.cap == 0 {
+			// If the capacity is zero, we can just call `init` directly.
+			return unsafe { self.init(cap) };
+		}
+
 		let new_layout = Self::layout(cap)?;
 		alloc_guard(new_layout.size())?;
 
-		let ptr = if self.cap == 0 {
-			// no allocation to resize, allocate anew
-			unsafe { alloc::alloc(new_layout) }
-		} else {
+		let ptr = {
 			let Ok(old_layout) = Self::layout(self.cap) else {
 				unreachable!();
 			};
@@ -286,6 +305,50 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		// matches the size requested. If that ever changes, the capacity
 		// here should change to `ptr.len() / mem::size_of::<T>()`.
 		self.cap = cap;
+		Ok(())
+	}
+
+	/// # Safety
+	/// This method requires that:
+	/// - `size` is non-zero
+	/// - `self.ptr` is dangling
+	/// - `self.cap` is zero
+	unsafe fn init(&mut self, size: usize) -> Result<(), RawBufferError> {
+		let layout = match Self::layout(size) {
+			Ok(layout) => layout,
+			Err(_) => return Err(RawBufferError::CapacityOverflow),
+		};
+
+		alloc_guard(layout.size())?;
+
+		// SAFETY:
+		// - The layout is not zero-sized, even if `size` is zero, because we extend it from the header layout.
+		let ptr = unsafe { alloc::alloc(layout) };
+
+		if ptr.is_null() {
+			return Err(RawBufferError::AllocError { layout });
+		}
+
+		let header = ptr as *mut Header;
+		// SAFETY: The pointer is non-null and from a new allocation, so we're not supposed to drop anything.
+		unsafe {
+			header.write(Header {
+				ref_count: AtomicUsize::new(1),
+			})
+		};
+
+		// SAFETY:
+		// - The pointer is non-null
+		// - The OFFSET is included in the layout that produced the pointer
+		let buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
+
+		// Allocators currently return a `NonNull<[u8]>` whose length
+		// matches the size requested. If that ever changes, the capacity
+		// here should change to `ptr.len() / mem::size_of::<T>()`.
+		let cap = size;
+		self.buf = buf;
+		self.cap = cap;
+
 		Ok(())
 	}
 
@@ -326,10 +389,8 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		let new_layout = Self::layout(cap)?;
 		alloc_guard(new_layout.size())?;
 
-		let ptr = if self.cap == 0 {
-			// no allocation to resize, allocate anew
-			unsafe { alloc::alloc(new_layout) }
-		} else {
+		// No need to check for unallocated, because we are shrinking and checked that cap is < self.cap
+		let ptr = {
 			let Ok(old_layout) = Self::layout(self.cap) else {
 				unreachable!();
 			};
@@ -361,19 +422,103 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		self.cap = cap;
 		Ok(())
 	}
+
+	// Non-inlined part of `drop`. Deallocs the bugger.
+	// Safety: requires that `ptr` and `cap` is valid
+	// and no more references exists to buffer.
+	#[inline(never)]
+	unsafe fn dealloc_slow(ptr: *mut Header, cap: usize) {
+		let layout = Self::layout(cap).expect("Invalid layout");
+
+		// SAFETY: The pointer is non-null and the layout is correct
+		unsafe { alloc::dealloc(ptr as *mut u8, layout) };
+	}
+
+	/// Produces a by-ref clone for this buffer by incrementing the ref_count
+	/// and returning a pointer to the same allocation.
+	#[inline]
+	pub fn ref_clone(&self) -> Self {
+		if self.cap == 0 {
+			// if cap is 0, we don't have a allocation
+			// so we can just return a new danling buffer
+			return Self::new();
+		}
+
+		// SAFETY: The pointer is non-null when cap is non-zero
+		let ptr = unsafe { self.buf.as_ptr().sub(Self::BUFFER_OFFSET) as *mut Header };
+
+		// SAFETY: We initialize the header when we allocate the buffer
+		let header = unsafe { &*ptr };
+
+		// Using a relaxed ordering is alright here, as knowledge of the
+		// original reference prevents other threads from erroneously deleting
+		// the object.
+		//
+		// As explained in the [Boost documentation][1], Increasing the
+		// reference counter can always be done with memory_order_relaxed: New
+		// references to an object can only be formed from an existing
+		// reference, and passing an existing reference from one thread to
+		// another must already provide any required synchronization.
+		//
+		// [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
+		let old_size = header.ref_count.fetch_add(1, atomic::Ordering::Relaxed);
+
+		// However we need to guard against massive refcounts in case someone
+		// is `mem::forget`ing Arcs. If we don't do this the count can overflow
+		// and users will use-after free. We racily saturate to `isize::MAX` on
+		// the assumption that there aren't ~2 billion threads incrementing
+		// the reference count at once. This branch will never be taken in
+		// any realistic program.
+		//
+		// We abort because such a program is incredibly degenerate, and we
+		// don't care to support it.
+		if old_size > MAX_REFCOUNT {
+			abort();
+		}
+
+		Self {
+			buf: self.buf,
+			cap: self.cap,
+		}
+	}
 }
 
 impl<const ALIGNMENT: usize> Drop for RawAlignedBuffer<ALIGNMENT> {
+	#[inline]
 	fn drop(&mut self) {
 		if self.cap == 0 {
 			// if the capacity is zero, the buffer is unallocated, so we don't need to deallocate
 			return;
 		}
 
-		let layout = Self::layout(self.cap).expect("Invalid layout");
+		// SAFETY: The pointer is non-null when cap is non-zero
+		let ptr = unsafe { self.buf.as_ptr().sub(Self::BUFFER_OFFSET) as *mut Header };
 
-		// SAFETY: The pointer is non-null and the layout is correct
-		unsafe { alloc::dealloc(self.buf.as_ptr().sub(Self::BUFFER_OFFSET), layout) };
+		// SAFETY: We initialize the header when we allocate the buffer
+		let header = unsafe { &*ptr };
+
+		// Because `fetch_sub` is already atomic, we do not need to synchronize
+		// with other threads unless we are going to delete the object.
+		if header.ref_count.fetch_sub(1, atomic::Ordering::Release) != 1 {
+			return;
+		}
+
+		// This load is needed to prevent reordering of use of the data and
+		// deletion of the data.  Because it is marked `Release`, the decreasing
+		// of the reference count synchronizes with this `Acquire` load. This
+		// means that use of the data happens before decreasing the reference
+		// count, which happens before this load, which happens before the
+		// deletion of the data.
+		//
+		// As explained in the [Boost documentation][1],
+		//
+		// [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
+		header.ref_count.load(atomic::Ordering::Acquire);
+
+		// SAFETY: Size is non-zero, and we're the last reference to the buffer
+		unsafe {
+			Self::dealloc_slow(ptr, self.cap);
+		}
 	}
 }
 

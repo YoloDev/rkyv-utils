@@ -18,8 +18,13 @@ impl From<RawBufferError> for TryReserveError {
 	}
 }
 
+/// A unique (owned) aligned buffer. This can be used to write data to the buffer,
+/// before converting it to a [`SharedAlignedBuffer`] to get cheap clones and sharing
+/// of the buffer data. This type is effectively a `Vec<u8>` with a custom alignment.
+///
+/// [`SharedAlignedBuffer`]: crate::SharedAlignedBuffer
 pub struct UniqueAlignedBuffer<const ALIGNMENT: usize> {
-	buf: RawAlignedBuffer<ALIGNMENT>,
+	pub(crate) buf: RawAlignedBuffer<ALIGNMENT>,
 	len: usize,
 }
 
@@ -127,7 +132,10 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// assert!(buf.capacity() >= 20);
 	/// ```
 	pub fn reserve(&mut self, additional: usize) {
-		self.buf.reserve(self.len, additional);
+		// SAFETY: We're the unieue owner of the buffer.
+		unsafe {
+			self.buf.reserve(self.len, additional);
+		}
 	}
 
 	/// Reserves the minimum capacity for at least `additional` more elements to
@@ -156,7 +164,10 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// assert!(buf.capacity() >= 20);
 	/// ```
 	pub fn reserve_exact(&mut self, additional: usize) {
-		self.buf.reserve_exact(self.len, additional);
+		// SAFETY: We're the unieue owner of the buffer.
+		unsafe {
+			self.buf.reserve_exact(self.len, additional);
+		}
 	}
 
 	/// Tries to reserve capacity for at least `additional` more elements to be inserted
@@ -192,10 +203,13 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
 	/// ```
 	pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-		self
-			.buf
-			.try_reserve(self.len, additional)
-			.map_err(TryReserveError::from)
+		// SAFETY: We're the unieue owner of the buffer.
+		unsafe {
+			self
+				.buf
+				.try_reserve(self.len, additional)
+				.map_err(TryReserveError::from)
+		}
 	}
 
 	/// Tries to reserve the minimum capacity for at least `additional`
@@ -238,10 +252,13 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
 	/// ```
 	pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-		self
-			.buf
-			.try_reserve_exact(self.len, additional)
-			.map_err(TryReserveError::from)
+		// SAFETY: We're the unieue owner of the buffer.
+		unsafe {
+			self
+				.buf
+				.try_reserve_exact(self.len, additional)
+				.map_err(TryReserveError::from)
+		}
 	}
 
 	/// Shrinks the capacity of the buffer as much as possible.
@@ -264,7 +281,10 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 		// they are equal, so we can avoid the panic case in `RawVec::shrink_to_fit`
 		// by only calling it with a greater capacity.
 		if self.capacity() > self.len {
-			self.buf.shrink_to_fit(self.len);
+			// SAFETY: We're the unieue owner of the buffer.
+			unsafe {
+				self.buf.shrink_to_fit(self.len);
+			}
 		}
 	}
 
@@ -289,7 +309,10 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// ```
 	pub fn shrink_to(&mut self, min_capacity: usize) {
 		if self.capacity() > min_capacity {
-			self.buf.shrink_to_fit(cmp::max(self.len, min_capacity));
+			// SAFETY: We're the unieue owner of the buffer.
+			unsafe {
+				self.buf.shrink_to_fit(cmp::max(self.len, min_capacity));
+			}
 		}
 	}
 
@@ -593,7 +616,10 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	pub fn push(&mut self, value: u8) {
 		// This will panic or abort if we would allocate too much.
 		if self.len == self.buf.capacity() {
-			self.buf.reserve(self.len, 1);
+			// SAFETY: We're the unieue owner of the buffer.
+			unsafe {
+				self.buf.reserve(self.len, 1);
+			}
 		}
 
 		unsafe {
