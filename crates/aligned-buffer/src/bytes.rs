@@ -28,11 +28,11 @@ unsafe impl<const ALIGNMENT: usize> BufMut for UniqueAlignedBuffer<ALIGNMENT> {
 			self.reserve(64);
 		}
 
-		let start = self.len();
-		let len = self.capacity() - start;
+		let offset = self.len();
+		let len = self.capacity() - offset;
 
 		unsafe {
-			let start_remaining = self.as_mut_ptr().add(len);
+			let start_remaining = self.as_mut_ptr().add(offset);
 			UninitSlice::from_raw_parts_mut(start_remaining, len)
 		}
 	}
@@ -59,12 +59,12 @@ unsafe impl<const ALIGNMENT: usize> BufMut for UniqueAlignedBuffer<ALIGNMENT> {
 
 	fn put_bytes(&mut self, val: u8, cnt: usize) {
 		self.reserve(cnt);
-		let start = self.len();
-		let len = self.capacity() - start;
+		let offset = self.len();
+		let len = self.capacity() - offset;
 		debug_assert!(len >= cnt);
 
 		unsafe {
-			let dst = self.as_mut_ptr().add(len);
+			let dst = self.as_mut_ptr().add(offset);
 			// Reserved above
 
 			ptr::write_bytes(dst, val, cnt);
@@ -112,5 +112,22 @@ mod tests {
 		do_write(&mut buf);
 		assert_eq!(buf.len(), 200 * 3);
 		assert!(buf.capacity() >= 200 * 3);
+	}
+
+	#[test]
+	fn byte_by_byte() {
+		fn do_write(buf: &mut impl BufMut) {
+			for i in 0u8..200 {
+				let chunk = buf.chunk_mut();
+				chunk.write_byte(0, i);
+				unsafe { buf.advance_mut(1) };
+			}
+		}
+
+		let mut buf = UniqueAlignedBuffer::<16>::new();
+		assert_eq!(buf.capacity(), 0);
+		assert_eq!(buf.len(), 0);
+
+		do_write(&mut buf);
 	}
 }
