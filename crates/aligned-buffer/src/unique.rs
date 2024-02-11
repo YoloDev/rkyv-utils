@@ -113,7 +113,8 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// ```
 	#[inline]
 	pub fn capacity(&self) -> usize {
-		self.buf.capacity()
+		// when the buffer is owned (unique), cap_or_len is the capacity
+		self.buf.cap_or_len()
 	}
 
 	/// Reserves capacity for at least `additional` more elements to be inserted
@@ -618,7 +619,7 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	#[inline]
 	pub fn push(&mut self, value: u8) {
 		// This will panic or abort if we would allocate too much.
-		if self.len == self.buf.capacity() {
+		if self.len == self.capacity() {
 			// SAFETY: We're the unieue owner of the buffer.
 			unsafe {
 				self.buf.reserve(self.len, 1);
@@ -805,8 +806,8 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// Converts a `UniqueAlignedBuffer` into a `SharedAlignedBuffer`
 	/// that can be safely cloned and shared between threads.
 	pub fn into_shared(mut self) -> SharedAlignedBuffer<ALIGNMENT> {
-		self.shrink_to_fit();
-		debug_assert_eq!(self.buf.capacity(), self.len());
+		self.buf.reset_len(self.len());
+		debug_assert_eq!(self.buf.cap_or_len(), self.len());
 		SharedAlignedBuffer { buf: self.buf }
 	}
 }

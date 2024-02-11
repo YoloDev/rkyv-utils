@@ -13,6 +13,7 @@ keywords = ["buffer", "rkyv", "bytes"]
 [dependencies]
 const_panic = { version = "0.2", default-features = false }
 stable_deref_trait = { version = "1", default-features = false, optional = true }
+static_assertions = "1"
 thiserror = "1"
 
 [features]

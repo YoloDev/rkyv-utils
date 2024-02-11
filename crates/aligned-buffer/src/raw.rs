@@ -1,6 +1,7 @@
+mod cap;
 mod layout;
 
-use self::layout::LayoutHelper;
+use self::{cap::TaggedCap, layout::LayoutHelper};
 use std::{
 	alloc::{self, handle_alloc_error, Layout},
 	cmp, mem,
@@ -28,6 +29,7 @@ const MAX_REFCOUNT: usize = (isize::MAX) as usize;
 #[repr(C)]
 struct Header {
 	ref_count: atomic::AtomicUsize,
+	alloc_size: usize,
 }
 
 impl Header {
@@ -37,8 +39,13 @@ impl Header {
 #[repr(C)]
 pub(crate) struct RawAlignedBuffer<const ALIGNMENT: usize> {
 	buf: NonNull<u8>,
-	cap: usize,
+	// this value represents either the capacity of the buffer when
+	// it is owned, or the length of the initialized parts of the buffer
+	// when it is shared.
+	cap_or_len: TaggedCap,
 }
+
+static_assertions::assert_eq_size!(RawAlignedBuffer<8>, Option<RawAlignedBuffer<8>>);
 
 unsafe impl<const ALIGNMENT: usize> Send for RawAlignedBuffer<ALIGNMENT> {}
 unsafe impl<const ALIGNMENT: usize> Sync for RawAlignedBuffer<ALIGNMENT> {}
@@ -54,6 +61,8 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		let (_, offset) = Header::LAYOUT.extend(buffer_layout);
 		offset
 	};
+
+	const MAX_CAPACITY: usize = TaggedCap::MAX_VALUE - Self::BUFFER_OFFSET;
 
 	#[inline]
 	fn layout(size: usize) -> Result<Layout, RawBufferError> {
@@ -74,7 +83,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	pub const fn new() -> Self {
 		Self {
 			buf: NonNull::dangling(),
-			cap: 0,
+			cap_or_len: TaggedCap::zero(),
 		}
 	}
 
@@ -88,7 +97,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		// SAFETY:
 		// - The size is non-zero
 		// - buf is new
-		handle_reserve(unsafe { buf.init(size) });
+		handle_reserve(unsafe { Self::alloc(&mut buf, size) });
 
 		buf
 	}
@@ -103,8 +112,39 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 
 	/// Gets the capacity of the allocation.
 	#[inline(always)]
-	pub fn capacity(&self) -> usize {
-		self.cap
+	pub const fn cap_or_len(&self) -> usize {
+		self.cap_or_len.value()
+	}
+
+	/// Updates the cap_or_len value to hold length instead of capacity.
+	/// This is used when the buffer is shared. The capacity is still stored
+	/// in the allocation, but the buffer is only allowed to access the
+	/// initialized parts of the buffer.
+	///
+	/// It is UB to call any of the methods that modify the buffer when
+	/// cap_or_len is a length.
+	pub fn reset_len(&mut self, len: usize) {
+		debug_assert!(len <= self.cap_or_len());
+		self.cap_or_len = self.cap_or_len.with_value(len);
+	}
+
+	/// Updates the cap_or_len value to hold capacity instead of length.
+	/// This is used when the buffer is converted from a shared buffer to
+	/// an owned buffer. The buffer is then allowed to access the entire
+	/// allocation (if any).
+	pub fn reset_cap(&mut self) {
+		if !self.cap_or_len.is_allocated() {
+			// if we've not allocated, we can just return
+			debug_assert_eq!(self.cap_or_len(), 0);
+			return;
+		}
+
+		// SAFETY: we just checked that we've allocated
+		unsafe {
+			let header_ptr = self.buf.as_ptr().sub(Self::BUFFER_OFFSET) as *mut Header;
+			let header = &*header_ptr;
+			self.cap_or_len = TaggedCap::new(header.alloc_size, true);
+		};
 	}
 
 	/// Ensures that the buffer contains at least enough space to hold `len +
@@ -226,7 +266,9 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// Returns if the buffer needs to grow to fulfill the needed extra capacity.
 	/// Mainly used to make inlining reserve-calls possible without inlining `grow`.
 	fn needs_to_grow(&self, len: usize, additional: usize) -> bool {
-		additional > self.capacity().wrapping_sub(len)
+		// NOTE: All methods that call this method are unsafe and require that
+		// the buffer is owned, and as such we know that `cap_or_len` is a capacity.
+		additional > self.cap_or_len().wrapping_sub(len)
 	}
 
 	// This method is usually instantiated many times. So we want it to be as
@@ -237,6 +279,9 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	// of the code that doesn't depend on `T` as possible is in functions that
 	// are non-generic over `T`.
 	fn grow_amortized(&mut self, len: usize, additional: usize) -> Result<(), RawBufferError> {
+		// NOTE: All methods that call this method are unsafe and require that
+		// the buffer is owned, and as such we know that `cap_or_len` is a capacity.
+
 		// This is ensured by the calling contexts.
 		debug_assert!(additional > 0);
 
@@ -247,7 +292,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 
 		// This guarantees exponential growth. The doubling cannot overflow
 		// because `cap <= isize::MAX` and the type of `cap` is `usize`.
-		let cap = cmp::max(self.cap * 2, required_cap);
+		let cap = cmp::max(self.cap_or_len() * 2, required_cap);
 		let cap = cmp::max(Self::MIN_NON_ZERO_CAP, cap);
 
 		self.grow_to(cap)
@@ -266,46 +311,19 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 
 	#[inline(always)]
 	fn grow_to(&mut self, cap: usize) -> Result<(), RawBufferError> {
-		debug_assert!(cap > self.cap, "Tried to shrink or keep the same capacity");
-		if self.cap == 0 {
-			// If the capacity is zero, we can just call `init` directly.
-			return unsafe { self.init(cap) };
+		// NOTE: All methods that call this method are unsafe and require that
+		// the buffer is owned, and as such we know that `cap_or_len` is a capacity.
+
+		debug_assert!(
+			cap > self.cap_or_len(),
+			"Tried to shrink or keep the same capacity"
+		);
+		if !self.cap_or_len.is_allocated() {
+			// If we've not allocated, we can just call `init` directly.
+			return unsafe { Self::alloc(self, cap) };
 		}
 
-		let new_layout = Self::layout(cap)?;
-		alloc_guard(new_layout.size())?;
-
-		let ptr = {
-			let Ok(old_layout) = Self::layout(self.cap) else {
-				unreachable!();
-			};
-
-			debug_assert_eq!(old_layout.align(), new_layout.align());
-
-			// SAFETY:
-			// - `self.ptr` is already offset by `BUFFER_OFFSET`
-			// - `old_layout` is the layout that produced `self.ptr`
-			// - `new_layout.size()` is already validated
-			unsafe {
-				let ptr = self.buf.as_ptr().sub(Self::BUFFER_OFFSET);
-				alloc::realloc(ptr, old_layout, new_layout.size())
-			}
-		};
-
-		if ptr.is_null() {
-			return Err(RawBufferError::AllocError { layout: new_layout });
-		}
-
-		// SAFETY:
-		// - The pointer is non-null
-		// - The OFFSET is included in the layout that produced the pointer
-		self.buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
-
-		// Allocators currently return a `NonNull<[u8]>` whose length
-		// matches the size requested. If that ever changes, the capacity
-		// here should change to `ptr.len() / mem::size_of::<T>()`.
-		self.cap = cap;
-		Ok(())
+		unsafe { Self::realloc(self, cap) }
 	}
 
 	/// # Safety
@@ -313,13 +331,16 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// - `size` is non-zero
 	/// - `self.ptr` is dangling
 	/// - `self.cap` is zero
-	unsafe fn init(&mut self, size: usize) -> Result<(), RawBufferError> {
-		let layout = match Self::layout(size) {
+	unsafe fn alloc(this: &mut Self, cap: usize) -> Result<(), RawBufferError> {
+		debug_assert_eq!(this.cap_or_len(), 0);
+		debug_assert!(!this.cap_or_len.is_allocated());
+
+		let layout = match Self::layout(cap) {
 			Ok(layout) => layout,
 			Err(_) => return Err(RawBufferError::CapacityOverflow),
 		};
 
-		alloc_guard(layout.size())?;
+		Self::alloc_guard(layout.size())?;
 
 		// SAFETY:
 		// - The layout is not zero-sized, even if `size` is zero, because we extend it from the header layout.
@@ -329,11 +350,18 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 			return Err(RawBufferError::AllocError { layout });
 		}
 
+		// Allocators currently return a `NonNull<[u8]>` whose length
+		// matches the size requested. If that ever changes, the capacity
+		// here should change to `ptr.len() / mem::size_of::<T>()`.
+		#[allow(clippy::redundant_locals)]
+		let cap = cap;
+
 		let header = ptr as *mut Header;
 		// SAFETY: The pointer is non-null and from a new allocation, so we're not supposed to drop anything.
 		unsafe {
 			header.write(Header {
 				ref_count: AtomicUsize::new(1),
+				alloc_size: cap,
 			})
 		};
 
@@ -342,56 +370,26 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		// - The OFFSET is included in the layout that produced the pointer
 		let buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
 
-		// Allocators currently return a `NonNull<[u8]>` whose length
-		// matches the size requested. If that ever changes, the capacity
-		// here should change to `ptr.len() / mem::size_of::<T>()`.
-		let cap = size;
-		self.buf = buf;
-		self.cap = cap;
+		this.buf = buf;
+		this.cap_or_len = TaggedCap::new(cap, true);
 
 		Ok(())
 	}
 
-	fn shrink(&mut self, cap: usize) -> Result<(), RawBufferError> {
-		#[cold]
-		fn dealloc_buf<const ALIGNMENT: usize>(
-			buf: &mut RawAlignedBuffer<ALIGNMENT>,
-		) -> Result<(), RawBufferError> {
-			let layout = RawAlignedBuffer::<ALIGNMENT>::layout(buf.cap)?;
-			// SAFETY: The pointer is non-null and the layout is correct
-			unsafe {
-				alloc::dealloc(
-					buf
-						.buf
-						.as_ptr()
-						.sub(RawAlignedBuffer::<ALIGNMENT>::BUFFER_OFFSET),
-					layout,
-				)
-			};
-			buf.buf = NonNull::dangling();
-			buf.cap = 0;
-			Ok(())
-		}
-
-		assert!(
-			cap <= self.capacity(),
-			"Tried to shrink to a larger capacity"
-		);
-
-		if cap == self.capacity() {
-			return Ok(());
-		}
-
-		if cap == 0 {
-			return dealloc_buf(self);
-		}
+	/// # Safety
+	/// This method requires that:
+	/// - `size` is non-zero
+	/// - `self.ptr` is valid
+	/// - `self.cap` is non-zero & allocated
+	unsafe fn realloc(this: &mut Self, cap: usize) -> Result<(), RawBufferError> {
+		debug_assert_ne!(this.cap_or_len(), 0);
+		debug_assert!(this.cap_or_len.is_allocated());
 
 		let new_layout = Self::layout(cap)?;
-		alloc_guard(new_layout.size())?;
+		Self::alloc_guard(new_layout.size())?;
 
-		// No need to check for unallocated, because we are shrinking and checked that cap is < self.cap
 		let ptr = {
-			let Ok(old_layout) = Self::layout(self.cap) else {
+			let Ok(old_layout) = Self::layout(this.cap_or_len()) else {
 				unreachable!();
 			};
 
@@ -402,7 +400,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 			// - `old_layout` is the layout that produced `self.ptr`
 			// - `new_layout.size()` is already validated
 			unsafe {
-				let ptr = self.buf.as_ptr().sub(Self::BUFFER_OFFSET);
+				let ptr = this.buf.as_ptr().sub(Self::BUFFER_OFFSET);
 				alloc::realloc(ptr, old_layout, new_layout.size())
 			}
 		};
@@ -411,16 +409,65 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 			return Err(RawBufferError::AllocError { layout: new_layout });
 		}
 
+		// Allocators currently return a `NonNull<[u8]>` whose length
+		// matches the size requested. If that ever changes, the capacity
+		// here should change to `ptr.len() / mem::size_of::<T>()`.
+		#[allow(clippy::redundant_locals)]
+		let cap = cap;
+
+		let header = ptr as *mut Header;
+
 		// SAFETY:
 		// - The pointer is non-null
 		// - The OFFSET is included in the layout that produced the pointer
-		self.buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
+		this.buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
+
+		// SAFETY: The pointer is not null
+		unsafe { (*header).alloc_size = cap };
 
 		// Allocators currently return a `NonNull<[u8]>` whose length
 		// matches the size requested. If that ever changes, the capacity
 		// here should change to `ptr.len() / mem::size_of::<T>()`.
-		self.cap = cap;
+		this.cap_or_len = this.cap_or_len.with_value(cap);
 		Ok(())
+	}
+
+	fn shrink(&mut self, cap: usize) -> Result<(), RawBufferError> {
+		#[cold]
+		fn dealloc_buf<const ALIGNMENT: usize>(
+			buf: &mut RawAlignedBuffer<ALIGNMENT>,
+		) -> Result<(), RawBufferError> {
+			debug_assert!(buf.cap_or_len.is_allocated());
+
+			// SAFETY: The pointer is non-null and the layout is correct
+			unsafe {
+				let ptr = buf
+					.buf
+					.as_ptr()
+					.sub(RawAlignedBuffer::<ALIGNMENT>::BUFFER_OFFSET) as *mut Header;
+
+				RawAlignedBuffer::<ALIGNMENT>::dealloc_slow(ptr, buf.cap_or_len())
+			};
+
+			buf.buf = NonNull::dangling();
+			buf.cap_or_len = TaggedCap::zero();
+			Ok(())
+		}
+
+		assert!(
+			cap <= self.cap_or_len(),
+			"Tried to shrink to a larger capacity"
+		);
+
+		if cap == self.cap_or_len() {
+			return Ok(());
+		}
+
+		if cap == 0 {
+			return dealloc_buf(self);
+		}
+
+		unsafe { Self::realloc(self, cap) }
 	}
 
 	// Non-inlined part of `drop`. Deallocs the bugger.
@@ -428,6 +475,8 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	// and no more references exists to buffer.
 	#[inline(never)]
 	unsafe fn dealloc_slow(ptr: *mut Header, cap: usize) {
+		debug_assert_eq!((*ptr).alloc_size, cap);
+
 		let layout = Self::layout(cap).expect("Invalid layout");
 
 		// SAFETY: The pointer is non-null and the layout is correct
@@ -437,10 +486,10 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// Gets the number of shared references to this buffer.
 	#[inline]
 	pub fn ref_count(&self) -> usize {
-		if self.cap == 0 {
-			// if cap is zero, we've not allocated, and this instance consists only
-			// of owned stack data. It's thus safe to treat it as a unique instance
-			// which has ref-count of 1
+		if !self.cap_or_len.is_allocated() {
+			debug_assert_ne!(self.cap_or_len(), 0);
+			// if we've not allocated, this is basically an empty slice
+			// and we can treat it as if it has no shared references.
 			1
 		} else {
 			// SAFETY: The pointer is non-null when cap is non-zero
@@ -463,9 +512,8 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// and returning a pointer to the same allocation.
 	#[inline]
 	pub fn ref_clone(&self) -> Self {
-		if self.cap == 0 {
-			// if cap is 0, we don't have a allocation
-			// so we can just return a new danling buffer
+		if !self.cap_or_len.is_allocated() {
+			// if we don't have a allocation we can just return a new danling buffer
 			return Self::new();
 		}
 
@@ -503,7 +551,25 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 
 		Self {
 			buf: self.buf,
-			cap: self.cap,
+			cap_or_len: self.cap_or_len,
+		}
+	}
+
+	// We need to guarantee the following:
+	// * We don't ever allocate `> isize::MAX` byte-size objects.
+	// * We don't overflow `usize::MAX` and actually allocate too little.
+	//
+	// On 64-bit we just need to check for overflow since trying to allocate
+	// `> isize::MAX` bytes will surely fail. On 32-bit and 16-bit we need to add
+	// an extra guard for this in case we're running on a platform which can use
+	// all 4GB in user-space, e.g., PAE or x32.
+
+	#[inline]
+	fn alloc_guard(alloc_size: usize) -> Result<(), RawBufferError> {
+		if usize::BITS < 64 && (alloc_size - mem::size_of::<Header>() - 64) > Self::MAX_CAPACITY {
+			Err(RawBufferError::CapacityOverflow)
+		} else {
+			Ok(())
 		}
 	}
 }
@@ -511,8 +577,8 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 impl<const ALIGNMENT: usize> Drop for RawAlignedBuffer<ALIGNMENT> {
 	#[inline]
 	fn drop(&mut self) {
-		if self.cap == 0 {
-			// if the capacity is zero, the buffer is unallocated, so we don't need to deallocate
+		if !self.cap_or_len.is_allocated() {
+			// if we haven't allocated, we don't need to do anything
 			return;
 		}
 
@@ -542,7 +608,7 @@ impl<const ALIGNMENT: usize> Drop for RawAlignedBuffer<ALIGNMENT> {
 
 		// SAFETY: Size is non-zero, and we're the last reference to the buffer
 		unsafe {
-			Self::dealloc_slow(ptr, self.cap);
+			Self::dealloc_slow(ptr, header.alloc_size);
 		}
 	}
 }
@@ -554,24 +620,6 @@ fn handle_reserve(result: Result<(), RawBufferError>) {
 		Err(RawBufferError::CapacityOverflow) => capacity_overflow(),
 		Err(RawBufferError::AllocError { layout, .. }) => handle_alloc_error(layout),
 		Ok(()) => { /* yay */ }
-	}
-}
-
-// We need to guarantee the following:
-// * We don't ever allocate `> isize::MAX` byte-size objects.
-// * We don't overflow `usize::MAX` and actually allocate too little.
-//
-// On 64-bit we just need to check for overflow since trying to allocate
-// `> isize::MAX` bytes will surely fail. On 32-bit and 16-bit we need to add
-// an extra guard for this in case we're running on a platform which can use
-// all 4GB in user-space, e.g., PAE or x32.
-
-#[inline]
-fn alloc_guard(alloc_size: usize) -> Result<(), RawBufferError> {
-	if usize::BITS < 64 && (alloc_size - mem::size_of::<Header>() - 64) > isize::MAX as usize {
-		Err(RawBufferError::CapacityOverflow)
-	} else {
-		Ok(())
 	}
 }
 

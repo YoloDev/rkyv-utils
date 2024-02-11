@@ -99,7 +99,8 @@ impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
 	/// ```
 	#[inline]
 	pub fn len(&self) -> usize {
-		self.buf.capacity()
+		// when the buffer is shared, cap_or_len is the length
+		self.buf.cap_or_len()
 	}
 
 	/// Returns `true` if the buffer contains no data.
@@ -146,9 +147,10 @@ impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
 	/// let _y = SharedAlignedBuffer::clone(&x);
 	/// assert!(SharedAlignedBuffer::try_unique(x).is_err());
 	/// ```
-	pub fn try_unique(this: Self) -> Result<UniqueAlignedBuffer<ALIGNMENT>, Self> {
+	pub fn try_unique(mut this: Self) -> Result<UniqueAlignedBuffer<ALIGNMENT>, Self> {
 		if this.is_unique() {
-			let len = this.buf.capacity();
+			let len = this.len();
+			this.buf.reset_cap();
 			Ok(UniqueAlignedBuffer { buf: this.buf, len })
 		} else {
 			Err(this)
@@ -234,6 +236,18 @@ mod tests {
 		let x = UniqueAlignedBuffer::<16>::from_iter([1, 2, 3, 4]).into_shared();
 		let _y = SharedAlignedBuffer::clone(&x);
 		assert!(SharedAlignedBuffer::try_unique(x).is_err());
+	}
+
+	#[test]
+	fn sharing_does_not_shrink_the_buffer() {
+		let buf = UniqueAlignedBuffer::<64>::with_capacity(10);
+		let cap = buf.capacity();
+		let buf = buf.into_shared();
+		assert_eq!(&*buf, &[]);
+
+		let buf = UniqueAlignedBuffer::try_from(buf).unwrap();
+		assert_eq!(&*buf, &[]);
+		assert_eq!(buf.capacity(), cap);
 	}
 
 	// Check that the `SharedAlignedBuffer` is `Send` and `Sync`.
