@@ -129,5 +129,11 @@ mod tests {
 		assert_eq!(buf.len(), 0);
 
 		do_write(&mut buf);
+
+		assert_eq!(buf.len(), 200);
+		assert!(buf.capacity() >= 200);
+		for (idx, b) in buf.iter().copied().enumerate() {
+			assert_eq!(b as usize, idx);
+		}
 	}
 }
