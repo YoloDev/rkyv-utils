@@ -1,5 +1,7 @@
+use std::ptr;
+
 use crate::{raw::RawAlignedBuffer, UniqueAlignedBuffer};
-use bytes::{buf::UninitSlice, BufMut};
+use bytes::{buf::UninitSlice, Buf, BufMut};
 
 unsafe impl<const ALIGNMENT: usize> BufMut for UniqueAlignedBuffer<ALIGNMENT> {
 	#[inline]
@@ -32,6 +34,42 @@ unsafe impl<const ALIGNMENT: usize> BufMut for UniqueAlignedBuffer<ALIGNMENT> {
 		unsafe {
 			let start_remaining = self.as_mut_ptr().add(len);
 			UninitSlice::from_raw_parts_mut(start_remaining, len)
+		}
+	}
+
+	// Specialize these methods so they can skip checking `remaining_mut`
+	// and `advance_mut`.
+
+	fn put<T: Buf>(&mut self, mut src: T)
+	where
+		Self: Sized,
+	{
+		while src.has_remaining() {
+			let s = src.chunk();
+			let l = s.len();
+			self.extend_from_slice(s);
+			src.advance(l);
+		}
+	}
+
+	#[inline]
+	fn put_slice(&mut self, src: &[u8]) {
+		self.extend_from_slice(src);
+	}
+
+	fn put_bytes(&mut self, val: u8, cnt: usize) {
+		self.reserve(cnt);
+		let start = self.len();
+		let len = self.capacity() - start;
+		debug_assert!(len >= cnt);
+
+		unsafe {
+			let dst = self.as_mut_ptr().add(len);
+			// Reserved above
+
+			ptr::write_bytes(dst, val, cnt);
+
+			self.advance_mut(cnt);
 		}
 	}
 }
