@@ -62,7 +62,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		offset
 	};
 
-	const MAX_CAPACITY: usize = TaggedCap::MAX_VALUE - Self::BUFFER_OFFSET;
+	pub(crate) const MAX_CAPACITY: usize = TaggedCap::MAX_VALUE - Self::BUFFER_OFFSET - 64;
 
 	#[inline]
 	fn layout(size: usize) -> Result<Layout, RawBufferError> {
@@ -566,7 +566,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 
 	#[inline]
 	fn alloc_guard(alloc_size: usize) -> Result<(), RawBufferError> {
-		if usize::BITS < 64 && (alloc_size - mem::size_of::<Header>() - 64) > Self::MAX_CAPACITY {
+		if usize::BITS < 64 && (alloc_size - mem::size_of::<Header>()) > Self::MAX_CAPACITY {
 			Err(RawBufferError::CapacityOverflow)
 		} else {
 			Ok(())

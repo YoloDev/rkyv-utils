@@ -11,6 +11,7 @@ keywords = ["buffer", "rkyv", "bytes"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bytes = { version = "1", default-features = false, optional = true, features = ["std"] }
 const_panic = { version = "0.2", default-features = false }
 stable_deref_trait = { version = "1", default-features = false, optional = true }
 static_assertions = "1"
@@ -19,3 +20,4 @@ thiserror = "1"
 [features]
 default = ["stable-deref-trait"]
 stable-deref-trait = ["dep:stable_deref_trait"]
+bytes = ["dep:bytes"]
