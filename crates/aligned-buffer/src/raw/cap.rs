@@ -58,4 +58,4 @@ impl fmt::Debug for TaggedCap {
 }
 
 static_assertions::const_assert!(TaggedCap::zero().value() == 0);
-static_assertions::const_assert!(TaggedCap::zero().is_allocated() == false);
+static_assertions::const_assert!(!TaggedCap::zero().is_allocated());
