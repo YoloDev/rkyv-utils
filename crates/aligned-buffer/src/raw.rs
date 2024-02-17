@@ -1,6 +1,8 @@
 mod cap;
 mod layout;
 
+use crossbeam_utils::CachePadded;
+
 use self::{cap::TaggedCap, layout::LayoutHelper};
 use std::{
 	alloc::{self, handle_alloc_error, Layout},
@@ -28,7 +30,7 @@ const MAX_REFCOUNT: usize = (isize::MAX) as usize;
 
 #[repr(C)]
 struct Header {
-	ref_count: atomic::AtomicUsize,
+	ref_count: CachePadded<atomic::AtomicUsize>,
 	alloc_size: usize,
 }
 
@@ -360,7 +362,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		// SAFETY: The pointer is non-null and from a new allocation, so we're not supposed to drop anything.
 		unsafe {
 			header.write(Header {
-				ref_count: AtomicUsize::new(1),
+				ref_count: CachePadded::new(AtomicUsize::new(1)),
 				alloc_size: cap,
 			})
 		};

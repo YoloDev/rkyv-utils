@@ -2,4 +2,6 @@
 resolver = "2"
 members = [
 	"crates/aligned-buffer"
+,
+	"crates/aligned-buffer-pool"
 ]

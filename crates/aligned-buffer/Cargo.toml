@@ -13,6 +13,7 @@ keywords = ["buffer", "rkyv", "bytes"]
 [dependencies]
 bytes = { version = "1", default-features = false, optional = true, features = ["std"] }
 const_panic = { version = "0.2", default-features = false }
+crossbeam-utils = "0.8"
 rkyv = { version = "0.8.0-pre1", default-features = false, features = ["std", "bytecheck"], optional = true, git = "https://github.com/rkyv/rkyv", rev = "be38ebe926bf8bb4898af472ba7ce90f72df74bd" }
 stable_deref_trait = { version = "1", default-features = false, optional = true }
 static_assertions = "1"

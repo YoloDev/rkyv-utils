@@ -152,13 +152,12 @@ impl<const ALIGNMENT: usize> Writer for UniqueAlignedBuffer<ALIGNMENT> {
 
 #[cfg(test)]
 mod tests {
+	use super::*;
 	use rkyv::ser::{
 		allocator::{BackupAllocator, BumpAllocator, GlobalAllocator},
 		sharing::Unify,
 		AllocSerializer, Composite,
 	};
-
-	use super::*;
 
 	#[derive(Archive, Serialize, Deserialize)]
 	#[archive(check_bytes)]
