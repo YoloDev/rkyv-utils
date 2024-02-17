@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.3](https://github.com/YoloDev/rstml-component/compare/0.0.2..0.0.3) - 2024-02-11
+
+### 🐛 Bug Fixes
+
+- Wrong pointer offset - ([d30fb47](https://github.com/YoloDev/rstml-component/commit/d30fb4713ef7faae6a5b41528ad930bda36bc60a))
+
+### 🔨 Chore
+
+- Add some more testing - ([5286b07](https://github.com/YoloDev/rstml-component/commit/5286b07c7257dd4842c892e0ad59647c8de8c6bb))
+- Improve some `BufMut` methods - ([c5024e6](https://github.com/YoloDev/rstml-component/commit/c5024e6fcf3d171988b099dd1730bbe787c02368))
+- Add `bytes::BufMut` support - ([7e7a2a4](https://github.com/YoloDev/rstml-component/commit/7e7a2a46969ac9163bfd0d69964ed21f73ce85c8))
+
 ## [0.0.2](https://github.com/YoloDev/rstml-component/compare/0.0.1..0.0.2) - 2024-02-11
 
 ### ✨ Features
