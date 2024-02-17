@@ -1,7 +1,6 @@
-use std::ptr;
-
 use crate::{raw::RawAlignedBuffer, UniqueAlignedBuffer};
 use bytes::{buf::UninitSlice, Buf, BufMut};
+use std::ptr;
 
 unsafe impl<const ALIGNMENT: usize> BufMut for UniqueAlignedBuffer<ALIGNMENT> {
 	#[inline]
