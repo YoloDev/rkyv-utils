@@ -6,7 +6,7 @@ mod unique;
 mod bytes;
 
 #[cfg(feature = "rkyv")]
-mod rkyv;
+pub mod rkyv;
 
 pub use shared::SharedAlignedBuffer;
 pub use unique::{TryReserveError, UniqueAlignedBuffer};
