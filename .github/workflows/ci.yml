@@ -132,5 +132,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # cache-provider: buildjet
 
+      - uses: extractions/setup-just@v1
+        name: Setup just
+
       - name: Run tests
-        run: cargo miri test --workspace --all-features
+        run: just miri-test
