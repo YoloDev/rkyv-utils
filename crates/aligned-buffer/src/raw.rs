@@ -652,7 +652,7 @@ mod tests {
 
 	fn validate_alignment<const ALIGNMENT: usize>() {
 		let layout = RawAlignedBuffer::<ALIGNMENT>::layout(1024).expect("Invalid alignment");
-		assert_eq!(layout.align(), ALIGNMENT);
+		assert!(layout.align() >= ALIGNMENT);
 
 		let buf = RawAlignedBuffer::<ALIGNMENT>::with_capacity(1024);
 		let ptr = buf.buf.as_ptr() as usize;

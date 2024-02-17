@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 /// A policy for retaining buffers in the pool.
 pub trait BufferRetentionPolicy<const ALIGNMENT: usize>: Copy {
-	fn should_retain(buffer: &UniqueAlignedBuffer<ALIGNMENT>) -> bool;
+	fn should_retain(&self, buffer: &UniqueAlignedBuffer<ALIGNMENT>) -> bool;
 }
 
 /// A policy that retains all buffers.
@@ -13,7 +13,7 @@ pub struct RetainAllRetentionPolicy;
 
 impl<const ALIGNMENT: usize> BufferRetentionPolicy<ALIGNMENT> for RetainAllRetentionPolicy {
 	#[inline(always)]
-	fn should_retain(_: &UniqueAlignedBuffer<ALIGNMENT>) -> bool {
+	fn should_retain(&self, _: &UniqueAlignedBuffer<ALIGNMENT>) -> bool {
 		true
 	}
 }
@@ -26,7 +26,7 @@ impl<const SIZE: usize, const ALIGNMENT: usize> BufferRetentionPolicy<ALIGNMENT>
 	for ConstMaxSizeRetentionPolicy<SIZE>
 {
 	#[inline(always)]
-	fn should_retain(buffer: &UniqueAlignedBuffer<ALIGNMENT>) -> bool {
+	fn should_retain(&self, buffer: &UniqueAlignedBuffer<ALIGNMENT>) -> bool {
 		buffer.len() <= SIZE
 	}
 }
@@ -56,7 +56,7 @@ impl<P: BufferRetentionPolicy<ALIGNMENT>, const ALIGNMENT: usize>
 
 	#[inline(always)]
 	fn is_valid(&self, buf: &UniqueAlignedBuffer<ALIGNMENT>) -> bool {
-		P::should_retain(buf)
+		self.policy.should_retain(buf)
 	}
 }
 
@@ -87,16 +87,6 @@ impl<P: BufferRetentionPolicy<ALIGNMENT>, const ALIGNMENT: usize>
 	#[inline]
 	pub fn recycle(&self, buffer: UniqueAlignedBuffer<ALIGNMENT>) {
 		self.pool.recycle(buffer)
-	}
-}
-
-impl<P: BufferRetentionPolicy<ALIGNMENT>, const ALIGNMENT: usize>
-	AlignedBufferPoolInner<P, ALIGNMENT>
-where
-	P: Default,
-{
-	pub fn with_capacity(capacity: usize) -> Self {
-		Self::new(P::default(), capacity)
 	}
 }
 
