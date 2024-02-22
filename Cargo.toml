@@ -4,4 +4,6 @@ members = [
 	"crates/aligned-buffer"
 ,
 	"crates/aligned-buffer-pool"
+,
+	"crates/rkyv-owned-archive"
 ]

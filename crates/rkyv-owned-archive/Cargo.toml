@@ -1,0 +1,22 @@
+[package]
+name = "rkyv-owned-archive"
+version = "0.0.0"
+edition = "2021"
+description = "Helpers for having owned Archived types in rkyv."
+license = "MIT"
+authors = ["Aleksander Heintz <alxandr@alxandr.me>"]
+repository = "https://github.com/YoloDev/rkyv-utils"
+keywords = ["buffer", "rkyv", "bytes"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+aligned-buffer = { version = "0.0.3", path = "../aligned-buffer", default-features = false }
+rkyv = { version = "0.8.0-pre1", default-features = false, git = "https://github.com/rkyv/rkyv", rev = "be38ebe926bf8bb4898af472ba7ce90f72df74bd" }
+
+[dev-dependencies]
+aligned-buffer-pool = { version = "0.0.0", path = "../aligned-buffer-pool", default-features = false }
+
+[features]
+default = ["bytecheck"]
+bytecheck = ["rkyv/bytecheck"]
