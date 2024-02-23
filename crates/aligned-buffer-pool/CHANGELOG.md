@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.1](https://github.com/YoloDev/rstml-component/compare/0.0.0..0.0.1) - 2024-02-23
+
+### 🔨 Chore
+
+- Updated the following local packages: aligned-buffer - ([0000000](https://github.com/YoloDev/rstml-component/commit/0000000))
+
 ## [0.0.0] - 2024-02-23
 
 ### ✨ Features
