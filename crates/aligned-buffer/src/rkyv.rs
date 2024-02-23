@@ -1,4 +1,7 @@
-use crate::{SharedAlignedBuffer, UniqueAlignedBuffer};
+use crate::{
+	alloc::{BufferAllocator, Global},
+	SharedAlignedBuffer, UniqueAlignedBuffer,
+};
 use rkyv::{
 	boxed::{ArchivedBox, BoxResolver},
 	bytecheck::CheckBytes,
@@ -70,7 +73,10 @@ where
 	}
 }
 
-impl<const ALIGNMENT: usize> Archive for SharedAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Archive for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Archived = ArchivedAlignedBuffer<ALIGNMENT>;
 	type Resolver = BoxResolver;
 
@@ -81,7 +87,10 @@ impl<const ALIGNMENT: usize> Archive for SharedAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<const ALIGNMENT: usize> Archive for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Archive for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Archived = ArchivedAlignedBuffer<ALIGNMENT>;
 	type Resolver = BoxResolver;
 
@@ -92,21 +101,29 @@ impl<const ALIGNMENT: usize> Archive for UniqueAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<S: Writer + Fallible, const ALIGNMENT: usize> Serialize<S> for SharedAlignedBuffer<ALIGNMENT> {
+impl<S: Writer + Fallible, const ALIGNMENT: usize, A> Serialize<S>
+	for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
 		serializer.align(ALIGNMENT)?;
 		unsafe { ArchivedBox::serialize_copy_from_slice(self.as_slice(), serializer) }
 	}
 }
 
-impl<S: Writer + Fallible, const ALIGNMENT: usize> Serialize<S> for UniqueAlignedBuffer<ALIGNMENT> {
+impl<S: Writer + Fallible, const ALIGNMENT: usize, A> Serialize<S>
+	for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
 		serializer.align(ALIGNMENT)?;
 		unsafe { ArchivedBox::serialize_copy_from_slice(self.as_slice(), serializer) }
 	}
 }
 
-impl<D: Fallible, const ALIGNMENT: usize> Deserialize<UniqueAlignedBuffer<ALIGNMENT>, D>
+impl<D: Fallible, const ALIGNMENT: usize> Deserialize<UniqueAlignedBuffer<ALIGNMENT, Global>, D>
 	for ArchivedAlignedBuffer<ALIGNMENT>
 {
 	fn deserialize(
@@ -119,7 +136,7 @@ impl<D: Fallible, const ALIGNMENT: usize> Deserialize<UniqueAlignedBuffer<ALIGNM
 	}
 }
 
-impl<D: Fallible, const ALIGNMENT: usize> Deserialize<SharedAlignedBuffer<ALIGNMENT>, D>
+impl<D: Fallible, const ALIGNMENT: usize> Deserialize<SharedAlignedBuffer<ALIGNMENT, Global>, D>
 	for ArchivedAlignedBuffer<ALIGNMENT>
 {
 	fn deserialize(
@@ -131,18 +148,27 @@ impl<D: Fallible, const ALIGNMENT: usize> Deserialize<SharedAlignedBuffer<ALIGNM
 	}
 }
 
-impl<const ALIGNMENT: usize> Fallible for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Fallible for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Error = Infallible;
 }
 
-impl<const ALIGNMENT: usize> Positional for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Positional for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn pos(&self) -> usize {
 		self.len()
 	}
 }
 
-impl<const ALIGNMENT: usize> Writer for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Writer for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn write(&mut self, bytes: &[u8]) -> Result<(), <Self as Fallible>::Error> {
 		self.extend_from_slice(bytes);

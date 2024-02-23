@@ -6,9 +6,10 @@ use crate::alloc::{BufferAllocator, Global};
 use crossbeam_utils::CachePadded;
 use std::{
 	alloc::{handle_alloc_error, Layout},
-	cmp, mem,
+	cmp,
+	mem::{self, ManuallyDrop},
 	process::abort,
-	ptr::NonNull,
+	ptr::{self, NonNull},
 	sync::atomic::{self, AtomicUsize},
 };
 
@@ -60,6 +61,22 @@ unsafe impl<const ALIGNMENT: usize, A> Send for RawAlignedBuffer<ALIGNMENT, A> w
 unsafe impl<const ALIGNMENT: usize, A> Sync for RawAlignedBuffer<ALIGNMENT, A> where
 	A: BufferAllocator<ALIGNMENT> + Sync
 {
+}
+
+impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT, Global> {
+	pub fn into_raw_parts(self) -> (*mut u8, usize) {
+		let me = ManuallyDrop::new(self);
+		(me.buf.as_ptr(), me.cap_or_len.into_inner())
+	}
+
+	#[inline]
+	pub unsafe fn from_raw_parts(ptr: *mut u8, cap: usize) -> Self {
+		Self {
+			buf: NonNull::new_unchecked(ptr),
+			cap_or_len: TaggedCap::from_inner(cap),
+			alloc: Global,
+		}
+	}
 }
 
 impl<const ALIGNMENT: usize, A> RawAlignedBuffer<ALIGNMENT, A>
@@ -116,6 +133,21 @@ where
 		handle_reserve(unsafe { Self::alloc(&mut buf, size) });
 
 		buf
+	}
+
+	pub fn into_raw_parts_with_alloc(self) -> (*mut u8, usize, A) {
+		let me = ManuallyDrop::new(self);
+		let alloc = unsafe { ptr::read(&me.alloc as *const A) };
+		(me.buf.as_ptr(), me.cap_or_len.into_inner(), alloc)
+	}
+
+	#[inline]
+	pub unsafe fn from_raw_parts_in(ptr: *mut u8, cap: usize, alloc: A) -> Self {
+		Self {
+			buf: NonNull::new_unchecked(ptr),
+			cap_or_len: TaggedCap::from_inner(cap),
+			alloc,
+		}
 	}
 
 	/// Gets a raw pointer to the start of the allocation. Note that this is

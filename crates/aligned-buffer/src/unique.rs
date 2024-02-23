@@ -101,6 +101,103 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self::with_capacity_in(capacity, Global)
 	}
+
+	/// Decomposes a `UniqueAlignedBuffer` into its raw components.
+	///
+	/// Returns the raw pointer to the underlying data, the length of
+	/// the buffer, and the allocated capacity of the buffer.
+	/// These are the same arguments in the same
+	/// order as the arguments to [`from_raw_parts`].
+	///
+	/// After calling this function, the caller is responsible for the
+	/// memory previously managed by the `UniqueAlignedBuffer`. The only
+	/// ways to do this are to convert the raw pointer, length, and capacity
+	/// back into a `UniqueAlignedBuffer` with the [`from_raw_parts`] function.
+	///
+	/// Note that it is valid to shrink the length of the buffer (even set it
+	/// to zero) and call `from_raw_parts` with the reduced length. This is
+	/// effectively the same as calling [`truncate`] or [`set_len`].
+	///
+	/// [`from_raw_parts`]: UniqueAlignedBuffer::from_raw_parts
+	/// [`truncate`]: UniqueAlignedBuffer::truncate
+	/// [`set_len`]: UniqueAlignedBuffer::set_len
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use aligned_buffer::UniqueAlignedBuffer;
+	/// let mut buf = UniqueAlignedBuffer::<32>::with_capacity(10);
+	/// buf.extend([1, 2, 3]);
+	///
+	/// assert_eq!(&*buf, &[1, 2, 3]);
+	/// let (ptr, len, cap) = buf.into_raw_parts();
+	///
+	/// let rebuilt = unsafe {
+	///     UniqueAlignedBuffer::<32>::from_raw_parts(ptr, 2, cap)
+	/// };
+	/// assert_eq!(&*rebuilt, &[1, 2]);
+	/// ```
+	pub fn into_raw_parts(self) -> (*mut u8, usize, usize) {
+		let (ptr, cap) = self.buf.into_raw_parts();
+		(ptr, self.len, cap)
+	}
+
+	/// Creates a `UniqueAlignedBuffer` directly from a pointer, a capacity, and a length.
+	///
+	/// # Safety
+	///
+	/// This is highly unsafe, due to the number of invariants that aren't
+	/// checked:
+	///
+	/// * `ptr` must have been allocated using the global allocator, such as via
+	///   the [`alloc::alloc`] function.
+	/// * `ptr` needs to be correctly offset into the allocation based on `ALIGNMENT`.
+	/// * `ptr` needs to point to an allocation with the correct size.
+	/// * In front of `ptr` there is a valid `RawAlignedBuffer` header.
+	/// * `length` needs to be less than or equal to `capacity`.
+	/// * The first `length` bytes must be properly initialized.
+	/// * `capacity` needs to be the capacity that the pointer was allocated with.
+	/// * The allocated size in bytes must be no larger than `isize::MAX`.
+	///   See the safety documentation of [`pointer::offset`].
+	///
+	/// These requirements are always upheld by any `ptr` that has been allocated
+	/// via `UniqueAlignedBuffer`. Other allocation sources are allowed if the invariants are
+	/// upheld.
+	///
+	/// Violating these may cause problems like corrupting the allocator's
+	/// internal data structures. For example it is normally **not** safe
+	/// to build a `UniqueAlignedBuffer` from a pointer to a C `char` array with length
+	/// `size_t`, doing so is only safe if the array was initially allocated by
+	/// a `UniqueAlignedBuffer`.
+	///
+	/// The ownership of `ptr` is effectively transferred to the
+	/// `UniqueAlignedBuffer` which may then deallocate, reallocate or change the
+	/// contents of memory pointed to by the pointer at will. Ensure
+	/// that nothing else uses the pointer after calling this
+	/// function.
+	///
+	/// [`alloc::alloc`]: alloc::alloc::alloc
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use aligned_buffer::UniqueAlignedBuffer;
+	/// let mut buf = UniqueAlignedBuffer::<32>::with_capacity(10);
+	/// buf.extend([1, 2, 3]);
+	///
+	/// assert_eq!(&*buf, &[1, 2, 3]);
+	/// let (ptr, len, cap) = buf.into_raw_parts();
+	///
+	/// let rebuilt = unsafe {
+	///     UniqueAlignedBuffer::<32>::from_raw_parts(ptr, 2, cap)
+	/// };
+	/// assert_eq!(&*rebuilt, &[1, 2]);
+	/// ```
+	#[inline]
+	pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize, capacity: usize) -> Self {
+		let buf = RawAlignedBuffer::from_raw_parts(ptr, capacity);
+		Self { buf, len }
+	}
 }
 
 impl<const ALIGNMENT: usize, A> UniqueAlignedBuffer<ALIGNMENT, A>
@@ -173,6 +270,103 @@ where
 	pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
 		let buf = RawAlignedBuffer::with_capacity_in(capacity, alloc);
 		Self { buf, len: 0 }
+	}
+
+	/// Decomposes a `UniqueAlignedBuffer` into its raw components.
+	///
+	/// Returns the raw pointer to the underlying data, the length of
+	/// the buffer, and the allocated capacity of the buffer.
+	/// These are the same arguments in the same
+	/// order as the arguments to [`from_raw_parts_in`].
+	///
+	/// After calling this function, the caller is responsible for the
+	/// memory previously managed by the `UniqueAlignedBuffer`. The only
+	/// ways to do this are to convert the raw pointer, length, and capacity
+	/// back into a `UniqueAlignedBuffer` with the [`from_raw_parts`] function.
+	///
+	/// Note that it is valid to shrink the length of the buffer (even set it
+	/// to zero) and call `from_raw_parts` with the reduced length. This is
+	/// effectively the same as calling [`truncate`] or [`set_len`].
+	///
+	/// [`from_raw_parts_in`]: UniqueAlignedBuffer::from_raw_parts_in
+	/// [`truncate`]: UniqueAlignedBuffer::truncate
+	/// [`set_len`]: UniqueAlignedBuffer::set_len
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use aligned_buffer::UniqueAlignedBuffer;
+	/// let mut buf = UniqueAlignedBuffer::<32>::with_capacity(10);
+	/// buf.extend([1, 2, 3]);
+	///
+	/// assert_eq!(&*buf, &[1, 2, 3]);
+	/// let (ptr, len, cap, alloc) = buf.into_raw_parts_with_alloc();
+	///
+	/// let rebuilt = unsafe {
+	///     UniqueAlignedBuffer::<32>::from_raw_parts_in(ptr, 2, cap, alloc)
+	/// };
+	/// assert_eq!(&*rebuilt, &[1, 2]);
+	/// ```
+	pub fn into_raw_parts_with_alloc(self) -> (*mut u8, usize, usize, A) {
+		let (ptr, cap, alloc) = self.buf.into_raw_parts_with_alloc();
+		(ptr, self.len, cap, alloc)
+	}
+
+	/// Creates a `UniqueAlignedBuffer` directly from a pointer, a capacity, and a length.
+	///
+	/// # Safety
+	///
+	/// This is highly unsafe, due to the number of invariants that aren't
+	/// checked:
+	///
+	/// * `ptr` must have been allocated using the global allocator, such as via
+	///   the [`alloc::alloc`] function.
+	/// * `ptr` needs to be correctly offset into the allocation based on `ALIGNMENT`.
+	/// * `ptr` needs to point to an allocation with the correct size.
+	/// * In front of `ptr` there is a valid `RawAlignedBuffer` header.
+	/// * `length` needs to be less than or equal to `capacity`.
+	/// * The first `length` bytes must be properly initialized.
+	/// * `capacity` needs to be the capacity that the pointer was allocated with.
+	/// * The allocated size in bytes must be no larger than `isize::MAX`.
+	///   See the safety documentation of [`pointer::offset`].
+	///
+	/// These requirements are always upheld by any `ptr` that has been allocated
+	/// via `UniqueAlignedBuffer`. Other allocation sources are allowed if the invariants are
+	/// upheld.
+	///
+	/// Violating these may cause problems like corrupting the allocator's
+	/// internal data structures. For example it is normally **not** safe
+	/// to build a `UniqueAlignedBuffer` from a pointer to a C `char` array with length
+	/// `size_t`, doing so is only safe if the array was initially allocated by
+	/// a `UniqueAlignedBuffer`.
+	///
+	/// The ownership of `ptr` is effectively transferred to the
+	/// `UniqueAlignedBuffer` which may then deallocate, reallocate or change the
+	/// contents of memory pointed to by the pointer at will. Ensure
+	/// that nothing else uses the pointer after calling this
+	/// function.
+	///
+	/// [`alloc::alloc`]: alloc::alloc::alloc
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use aligned_buffer::UniqueAlignedBuffer;
+	/// let mut buf = UniqueAlignedBuffer::<32>::with_capacity(10);
+	/// buf.extend([1, 2, 3]);
+	///
+	/// assert_eq!(&*buf, &[1, 2, 3]);
+	/// let (ptr, len, cap, alloc) = buf.into_raw_parts_with_alloc();
+	///
+	/// let rebuilt = unsafe {
+	///     UniqueAlignedBuffer::<32>::from_raw_parts_in(ptr, 2, cap, alloc)
+	/// };
+	/// assert_eq!(&*rebuilt, &[1, 2]);
+	/// ```
+	#[inline]
+	pub unsafe fn from_raw_parts_in(ptr: *mut u8, len: usize, capacity: usize, alloc: A) -> Self {
+		let buf = RawAlignedBuffer::from_raw_parts_in(ptr, capacity, alloc);
+		Self { buf, len }
 	}
 
 	/// Returns the total number of elements the buffer can hold without
