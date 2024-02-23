@@ -1,4 +1,5 @@
 use crate::{
+	alloc::{BufferAllocator, Global},
 	raw::{RawAlignedBuffer, RawBufferError},
 	SharedAlignedBuffer,
 };
@@ -26,8 +27,11 @@ impl From<RawBufferError> for TryReserveError {
 /// of the buffer data. This type is effectively a `Vec<u8>` with a custom alignment.
 ///
 /// [`SharedAlignedBuffer`]: crate::SharedAlignedBuffer
-pub struct UniqueAlignedBuffer<const ALIGNMENT: usize> {
-	pub(crate) buf: RawAlignedBuffer<ALIGNMENT>,
+pub struct UniqueAlignedBuffer<const ALIGNMENT: usize, A = Global>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
+	pub(crate) buf: RawAlignedBuffer<ALIGNMENT, A>,
 	pub(crate) len: usize,
 }
 
@@ -46,8 +50,7 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	#[inline]
 	#[must_use]
 	pub const fn new() -> Self {
-		let buf = RawAlignedBuffer::new();
-		Self { buf, len: 0 }
+		Self::new_in(Global)
 	}
 
 	/// Constructs a new, empty `UniqueAlignedBuffer` with at least the specified capacity.
@@ -96,7 +99,79 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	#[inline]
 	#[must_use]
 	pub fn with_capacity(capacity: usize) -> Self {
-		let buf = RawAlignedBuffer::with_capacity(capacity);
+		Self::with_capacity_in(capacity, Global)
+	}
+}
+
+impl<const ALIGNMENT: usize, A> UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
+	/// Constructs a new, empty `UniqueAlignedBuffer`.
+	///
+	/// The buffer will not allocate until elements are pushed onto it.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # #![allow(unused_mut)]
+	/// # use aligned_buffer::{UniqueAlignedBuffer, alloc::Global};
+	/// let mut buf = UniqueAlignedBuffer::<32>::new_in(Global);
+	/// ```
+	#[inline]
+	#[must_use]
+	pub const fn new_in(alloc: A) -> Self {
+		let buf = RawAlignedBuffer::new_in(alloc);
+		Self { buf, len: 0 }
+	}
+
+	/// Constructs a new, empty `UniqueAlignedBuffer` with at least the specified capacity.
+	///
+	/// The buffer will be able to hold at least `capacity` elements without
+	/// reallocating. This method is allowed to allocate for more elements than
+	/// `capacity`. If `capacity` is 0, the vector will not allocate.
+	///
+	/// It is important to note that although the returned vector has the
+	/// minimum *capacity* specified, the vector will have a zero *length*. For
+	/// an explanation of the difference between length and capacity, see
+	/// *[Capacity and reallocation]*.
+	///
+	/// If it is important to know the exact allocated capacity of a `UniqueAlignedBuffer`,
+	/// always use the [`capacity`] method after construction.
+	///
+	/// [Capacity and reallocation]: #capacity-and-reallocation
+	/// [`capacity`]: UniqueAlignedBuffer::capacity
+	///
+	/// # Panics
+	///
+	/// Panics if the new capacity is too large.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use aligned_buffer::{UniqueAlignedBuffer, alloc::Global};
+	/// let mut buf = UniqueAlignedBuffer::<32>::with_capacity_in(10, Global);
+	///
+	/// // The vector contains no items, even though it has capacity for more
+	/// assert_eq!(buf.len(), 0);
+	/// assert!(buf.capacity() >= 10);
+	///
+	/// // These are all done without reallocating...
+	/// for i in 0..10 {
+	///     buf.push(i);
+	/// }
+	/// assert_eq!(buf.len(), 10);
+	/// assert!(buf.capacity() >= 10);
+	///
+	/// // ...but this may make the vector reallocate
+	/// buf.push(11);
+	/// assert_eq!(buf.len(), 11);
+	/// assert!(buf.capacity() >= 11);
+	/// ```
+	#[inline]
+	#[must_use]
+	pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
+		let buf = RawAlignedBuffer::with_capacity_in(capacity, alloc);
 		Self { buf, len: 0 }
 	}
 
@@ -805,14 +880,17 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 
 	/// Converts a `UniqueAlignedBuffer` into a `SharedAlignedBuffer`
 	/// that can be safely cloned and shared between threads.
-	pub fn into_shared(mut self) -> SharedAlignedBuffer<ALIGNMENT> {
+	pub fn into_shared(mut self) -> SharedAlignedBuffer<ALIGNMENT, A> {
 		self.buf.reset_len(self.len());
 		debug_assert_eq!(self.buf.cap_or_len(), self.len());
 		SharedAlignedBuffer { buf: self.buf }
 	}
 }
 
-impl<const ALIGNMENT: usize> ops::Deref for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> ops::Deref for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Target = [u8];
 
 	#[inline]
@@ -821,14 +899,21 @@ impl<const ALIGNMENT: usize> ops::Deref for UniqueAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<const ALIGNMENT: usize> ops::DerefMut for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> ops::DerefMut for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn deref_mut(&mut self) -> &mut [u8] {
 		unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
 	}
 }
 
-impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize> ops::Index<I> for UniqueAlignedBuffer<ALIGNMENT> {
+impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize, A> ops::Index<I>
+	for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Output = I::Output;
 
 	#[inline]
@@ -837,8 +922,10 @@ impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize> ops::Index<I> for UniqueAligne
 	}
 }
 
-impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize> ops::IndexMut<I>
-	for UniqueAlignedBuffer<ALIGNMENT>
+impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize, A> ops::IndexMut<I>
+	for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
 {
 	#[inline]
 	fn index_mut(&mut self, index: I) -> &mut Self::Output {
@@ -846,7 +933,7 @@ impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize> ops::IndexMut<I>
 	}
 }
 
-impl<const ALIGNMENT: usize> FromIterator<u8> for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize> FromIterator<u8> for UniqueAlignedBuffer<ALIGNMENT, Global> {
 	#[inline]
 	fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
 		let iter = iter.into_iter();
@@ -857,7 +944,10 @@ impl<const ALIGNMENT: usize> FromIterator<u8> for UniqueAlignedBuffer<ALIGNMENT>
 	}
 }
 
-impl<const ALIGNMENT: usize> Extend<u8> for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Extend<u8> for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn extend<T: IntoIterator<Item = u8>>(&mut self, iter: T) {
 		let mut iter = iter.into_iter();
@@ -902,39 +992,53 @@ impl<const ALIGNMENT: usize> Extend<u8> for UniqueAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<const ALIGNMENT: usize> Default for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Default for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT> + Default,
+{
 	fn default() -> Self {
-		Self::new()
+		Self::new_in(A::default())
 	}
 }
 
-impl<const ALIGNMENT: usize> fmt::Debug for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> fmt::Debug for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fmt::Debug::fmt(&**self, f)
 	}
 }
 
-impl<const ALIGNMENT: usize> AsRef<[u8]> for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> AsRef<[u8]> for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn as_ref(&self) -> &[u8] {
 		self
 	}
 }
 
-impl<const ALIGNMENT: usize> AsMut<[u8]> for UniqueAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> AsMut<[u8]> for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn as_mut(&mut self) -> &mut [u8] {
 		self
 	}
 }
 
-impl<const ALIGNMENT: usize> TryFrom<SharedAlignedBuffer<ALIGNMENT>>
-	for UniqueAlignedBuffer<ALIGNMENT>
+impl<const ALIGNMENT: usize, A> TryFrom<SharedAlignedBuffer<ALIGNMENT, A>>
+	for UniqueAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
 {
-	type Error = SharedAlignedBuffer<ALIGNMENT>;
+	type Error = SharedAlignedBuffer<ALIGNMENT, A>;
 
 	#[inline]
-	fn try_from(value: SharedAlignedBuffer<ALIGNMENT>) -> Result<Self, Self::Error> {
+	fn try_from(value: SharedAlignedBuffer<ALIGNMENT, A>) -> Result<Self, Self::Error> {
 		SharedAlignedBuffer::try_unique(value)
 	}
 }

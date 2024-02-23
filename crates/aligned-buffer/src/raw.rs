@@ -1,11 +1,11 @@
 mod cap;
 mod layout;
 
-use crossbeam_utils::CachePadded;
-
 use self::{cap::TaggedCap, layout::LayoutHelper};
+use crate::alloc::{BufferAllocator, Global};
+use crossbeam_utils::CachePadded;
 use std::{
-	alloc::{self, handle_alloc_error, Layout},
+	alloc::{handle_alloc_error, Layout},
 	cmp, mem,
 	process::abort,
 	ptr::NonNull,
@@ -29,7 +29,7 @@ pub enum RawBufferError {
 const MAX_REFCOUNT: usize = (isize::MAX) as usize;
 
 #[repr(C)]
-struct Header {
+pub(crate) struct Header {
 	ref_count: CachePadded<atomic::AtomicUsize>,
 	alloc_size: usize,
 }
@@ -39,20 +39,33 @@ impl Header {
 }
 
 #[repr(C)]
-pub(crate) struct RawAlignedBuffer<const ALIGNMENT: usize> {
+pub(crate) struct RawAlignedBuffer<const ALIGNMENT: usize, A = Global>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	buf: NonNull<u8>,
 	// this value represents either the capacity of the buffer when
 	// it is owned, or the length of the initialized parts of the buffer
 	// when it is shared.
 	cap_or_len: TaggedCap,
+	alloc: A,
 }
 
 static_assertions::assert_eq_size!(RawAlignedBuffer<8>, Option<RawAlignedBuffer<8>>);
 
-unsafe impl<const ALIGNMENT: usize> Send for RawAlignedBuffer<ALIGNMENT> {}
-unsafe impl<const ALIGNMENT: usize> Sync for RawAlignedBuffer<ALIGNMENT> {}
+unsafe impl<const ALIGNMENT: usize, A> Send for RawAlignedBuffer<ALIGNMENT, A> where
+	A: BufferAllocator<ALIGNMENT> + Send
+{
+}
+unsafe impl<const ALIGNMENT: usize, A> Sync for RawAlignedBuffer<ALIGNMENT, A> where
+	A: BufferAllocator<ALIGNMENT> + Sync
+{
+}
 
-impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> RawAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	// Tiny Vecs are dumb. Skip to 8, because any heap allocators is likely
 	// to round up a request of less than 8 bytes to at least 8 bytes.
 	const MIN_NON_ZERO_CAP: usize = 8;
@@ -82,15 +95,16 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		Ok(layout)
 	}
 
-	pub const fn new() -> Self {
+	pub const fn new_in(alloc: A) -> Self {
 		Self {
 			buf: NonNull::dangling(),
 			cap_or_len: TaggedCap::zero(),
+			alloc,
 		}
 	}
 
-	pub fn with_capacity(size: usize) -> Self {
-		let mut buf = Self::new();
+	pub fn with_capacity_in(size: usize, alloc: A) -> Self {
+		let mut buf = Self::new_in(alloc);
 
 		if size == 0 {
 			return buf;
@@ -175,8 +189,8 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		// handle_reserve behind a call, while making sure that this function is likely to be
 		// inlined as just a comparison and a call if the comparison fails.
 		#[cold]
-		fn do_reserve_and_handle<const ALIGNMENT: usize>(
-			slf: &mut RawAlignedBuffer<ALIGNMENT>,
+		fn do_reserve_and_handle<const ALIGNMENT: usize, A: BufferAllocator<ALIGNMENT>>(
+			slf: &mut RawAlignedBuffer<ALIGNMENT, A>,
 			len: usize,
 			additional: usize,
 		) {
@@ -346,17 +360,16 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 
 		// SAFETY:
 		// - The layout is not zero-sized, even if `size` is zero, because we extend it from the header layout.
-		let ptr = unsafe { alloc::alloc(layout) };
-
-		if ptr.is_null() {
-			return Err(RawBufferError::AllocError { layout });
-		}
+		let ptr = this
+			.alloc
+			.allocate(layout)
+			.map_err(|_| RawBufferError::AllocError { layout })?;
 
 		// Allocators currently return a `NonNull<[u8]>` whose length
 		// matches the size requested. If that ever changes, the capacity
 		// here should change to `ptr.len() / mem::size_of::<T>()`.
-		#[allow(clippy::redundant_locals)]
-		let cap = cap;
+		let cap = ptr.len() - Self::BUFFER_OFFSET;
+		let ptr = ptr.as_ptr() as *mut u8;
 
 		let header = ptr as *mut Header;
 		// SAFETY: The pointer is non-null and from a new allocation, so we're not supposed to drop anything.
@@ -402,20 +415,21 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 			// - `old_layout` is the layout that produced `self.ptr`
 			// - `new_layout.size()` is already validated
 			unsafe {
-				let ptr = this.buf.as_ptr().sub(Self::BUFFER_OFFSET);
-				alloc::realloc(ptr, old_layout, new_layout.size())
+				let ptr = NonNull::new_unchecked(this.buf.as_ptr().sub(Self::BUFFER_OFFSET));
+				match Ord::cmp(&old_layout.size(), &new_layout.size()) {
+					cmp::Ordering::Equal => return Ok(()),
+					cmp::Ordering::Less => this.alloc.grow(ptr, old_layout, new_layout),
+					cmp::Ordering::Greater => this.alloc.shrink(ptr, old_layout, new_layout),
+				}
 			}
-		};
-
-		if ptr.is_null() {
-			return Err(RawBufferError::AllocError { layout: new_layout });
 		}
+		.map_err(|_| RawBufferError::AllocError { layout: new_layout })?;
 
 		// Allocators currently return a `NonNull<[u8]>` whose length
 		// matches the size requested. If that ever changes, the capacity
 		// here should change to `ptr.len() / mem::size_of::<T>()`.
-		#[allow(clippy::redundant_locals)]
-		let cap = cap;
+		let cap = ptr.len() - Self::BUFFER_OFFSET;
+		let ptr = ptr.as_ptr() as *mut u8;
 
 		let header = ptr as *mut Header;
 
@@ -436,8 +450,8 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 
 	fn shrink(&mut self, cap: usize) -> Result<(), RawBufferError> {
 		#[cold]
-		fn dealloc_buf<const ALIGNMENT: usize>(
-			buf: &mut RawAlignedBuffer<ALIGNMENT>,
+		fn dealloc_buf<const ALIGNMENT: usize, A: BufferAllocator<ALIGNMENT>>(
+			buf: &mut RawAlignedBuffer<ALIGNMENT, A>,
 		) -> Result<(), RawBufferError> {
 			debug_assert!(buf.cap_or_len.is_allocated());
 
@@ -448,7 +462,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 					.as_ptr()
 					.sub(RawAlignedBuffer::<ALIGNMENT>::BUFFER_OFFSET) as *mut Header;
 
-				RawAlignedBuffer::<ALIGNMENT>::dealloc_slow(ptr, buf.cap_or_len())
+				RawAlignedBuffer::<ALIGNMENT, A>::dealloc_slow(ptr, buf.cap_or_len(), &buf.alloc)
 			};
 
 			buf.buf = NonNull::dangling();
@@ -472,17 +486,17 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		unsafe { Self::realloc(self, cap) }
 	}
 
-	// Non-inlined part of `drop`. Deallocs the bugger.
+	// Non-inlined part of `drop`. Deallocs the buffer.
 	// Safety: requires that `ptr` and `cap` is valid
 	// and no more references exists to buffer.
 	#[inline(never)]
-	unsafe fn dealloc_slow(ptr: *mut Header, cap: usize) {
+	pub(crate) unsafe fn dealloc_slow(ptr: *mut Header, cap: usize, alloc: &A) {
 		debug_assert_eq!((*ptr).alloc_size, cap);
 
 		let layout = Self::layout(cap).expect("Invalid layout");
 
 		// SAFETY: The pointer is non-null and the layout is correct
-		unsafe { alloc::dealloc(ptr as *mut u8, layout) };
+		unsafe { alloc.deallocate_buffer(NonNull::new_unchecked(ptr as *mut u8), layout, cap) };
 	}
 
 	/// Gets the number of shared references to this buffer.
@@ -513,10 +527,13 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	/// Produces a by-ref clone for this buffer by incrementing the ref_count
 	/// and returning a pointer to the same allocation.
 	#[inline]
-	pub fn ref_clone(&self) -> Self {
+	pub fn ref_clone(&self) -> Self
+	where
+		A: Clone,
+	{
 		if !self.cap_or_len.is_allocated() {
 			// if we don't have a allocation we can just return a new danling buffer
-			return Self::new();
+			return Self::new_in(self.alloc.clone());
 		}
 
 		// SAFETY: The pointer is non-null when cap is non-zero
@@ -554,6 +571,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 		Self {
 			buf: self.buf,
 			cap_or_len: self.cap_or_len,
+			alloc: self.alloc.clone(),
 		}
 	}
 
@@ -576,7 +594,10 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<const ALIGNMENT: usize> Drop for RawAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Drop for RawAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn drop(&mut self) {
 		if !self.cap_or_len.is_allocated() {
@@ -610,7 +631,7 @@ impl<const ALIGNMENT: usize> Drop for RawAlignedBuffer<ALIGNMENT> {
 
 		// SAFETY: Size is non-zero, and we're the last reference to the buffer
 		unsafe {
-			Self::dealloc_slow(ptr, header.alloc_size);
+			Self::dealloc_slow(ptr, header.alloc_size, &self.alloc);
 		}
 	}
 }
@@ -654,7 +675,7 @@ mod tests {
 		let layout = RawAlignedBuffer::<ALIGNMENT>::layout(1024).expect("Invalid alignment");
 		assert!(layout.align() >= ALIGNMENT);
 
-		let buf = RawAlignedBuffer::<ALIGNMENT>::with_capacity(1024);
+		let buf = RawAlignedBuffer::<ALIGNMENT>::with_capacity_in(1024, Global);
 		let ptr = buf.buf.as_ptr() as usize;
 
 		assert_eq!(ptr % ALIGNMENT, 0);

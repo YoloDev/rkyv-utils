@@ -1,12 +1,19 @@
-use crate::{raw::RawAlignedBuffer, UniqueAlignedBuffer};
+use crate::{
+	alloc::{BufferAllocator, Global},
+	raw::RawAlignedBuffer,
+	UniqueAlignedBuffer,
+};
 use std::{fmt, ops, slice::SliceIndex};
 
 /// A shared buffer with an alignment. This buffer cannot be mutated.
 /// Typically, a `SharedAlignedBuffer` is created from a [`UniqueAlignedBuffer`].
 /// It can be cloned and shared across threads. It is effectively the same as an
 /// Arc<\[u8]>.
-pub struct SharedAlignedBuffer<const ALIGNMENT: usize> {
-	pub(crate) buf: RawAlignedBuffer<ALIGNMENT>,
+pub struct SharedAlignedBuffer<const ALIGNMENT: usize, A = Global>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
+	pub(crate) buf: RawAlignedBuffer<ALIGNMENT, A>,
 }
 
 impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
@@ -25,7 +32,30 @@ impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
 	#[inline]
 	#[must_use]
 	pub const fn new() -> Self {
-		let buf = RawAlignedBuffer::new();
+		Self::new_in(Global)
+	}
+}
+
+impl<const ALIGNMENT: usize, A> SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
+	/// Constructs a new, empty `SharedAlignedBuffer`.
+	///
+	/// The buffer will not allocate and cannot be mutated.
+	/// It's effectively the same as an empty slice.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # #![allow(unused_mut)]
+	/// # use aligned_buffer::{SharedAlignedBuffer, alloc::Global};
+	/// let buf = SharedAlignedBuffer::<32>::new_in(Global);
+	/// ```
+	#[inline]
+	#[must_use]
+	pub const fn new_in(alloc: A) -> Self {
+		let buf = RawAlignedBuffer::new_in(alloc);
 		Self { buf }
 	}
 
@@ -147,7 +177,7 @@ impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
 	/// let _y = SharedAlignedBuffer::clone(&x);
 	/// assert!(SharedAlignedBuffer::try_unique(x).is_err());
 	/// ```
-	pub fn try_unique(mut this: Self) -> Result<UniqueAlignedBuffer<ALIGNMENT>, Self> {
+	pub fn try_unique(mut this: Self) -> Result<UniqueAlignedBuffer<ALIGNMENT, A>, Self> {
 		if this.is_unique() {
 			let len = this.len();
 			this.buf.reset_cap();
@@ -158,7 +188,10 @@ impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<const ALIGNMENT: usize> Clone for SharedAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> Clone for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT> + Clone,
+{
 	fn clone(&self) -> Self {
 		Self {
 			buf: self.buf.ref_clone(),
@@ -166,16 +199,21 @@ impl<const ALIGNMENT: usize> Clone for SharedAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<const ALIGNMENT: usize> From<UniqueAlignedBuffer<ALIGNMENT>>
-	for SharedAlignedBuffer<ALIGNMENT>
+impl<const ALIGNMENT: usize, A> From<UniqueAlignedBuffer<ALIGNMENT, A>>
+	for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
 {
 	#[inline]
-	fn from(buf: UniqueAlignedBuffer<ALIGNMENT>) -> Self {
+	fn from(buf: UniqueAlignedBuffer<ALIGNMENT, A>) -> Self {
 		buf.into_shared()
 	}
 }
 
-impl<const ALIGNMENT: usize> ops::Deref for SharedAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> ops::Deref for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Target = [u8];
 
 	#[inline]
@@ -184,7 +222,11 @@ impl<const ALIGNMENT: usize> ops::Deref for SharedAlignedBuffer<ALIGNMENT> {
 	}
 }
 
-impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize> ops::Index<I> for SharedAlignedBuffer<ALIGNMENT> {
+impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize, A> ops::Index<I>
+	for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Output = I::Output;
 
 	#[inline]
@@ -193,13 +235,19 @@ impl<I: SliceIndex<[u8]>, const ALIGNMENT: usize> ops::Index<I> for SharedAligne
 	}
 }
 
-impl<const ALIGNMENT: usize> fmt::Debug for SharedAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> fmt::Debug for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fmt::Debug::fmt(&**self, f)
 	}
 }
 
-impl<const ALIGNMENT: usize> AsRef<[u8]> for SharedAlignedBuffer<ALIGNMENT> {
+impl<const ALIGNMENT: usize, A> AsRef<[u8]> for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn as_ref(&self) -> &[u8] {
 		self
@@ -207,14 +255,18 @@ impl<const ALIGNMENT: usize> AsRef<[u8]> for SharedAlignedBuffer<ALIGNMENT> {
 }
 
 #[cfg(feature = "stable-deref-trait")]
-unsafe impl<const ALIGNMENT: usize> stable_deref_trait::StableDeref
-	for SharedAlignedBuffer<ALIGNMENT>
+unsafe impl<const ALIGNMENT: usize, A> stable_deref_trait::StableDeref
+	for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
 {
 }
 
 #[cfg(feature = "stable-deref-trait")]
-unsafe impl<const ALIGNMENT: usize> stable_deref_trait::CloneStableDeref
-	for SharedAlignedBuffer<ALIGNMENT>
+unsafe impl<const ALIGNMENT: usize, A> stable_deref_trait::CloneStableDeref
+	for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT> + Clone,
 {
 }
 
