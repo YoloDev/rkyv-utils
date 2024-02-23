@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.5](https://github.com/YoloDev/rstml-component/compare/0.0.4..0.0.5) - 2024-02-23
+
+### ✨ Features
+
+- To/from raw parts - ([1a1c5fa](https://github.com/YoloDev/rstml-component/commit/1a1c5fad8b09b5692db65d0982e4f8ae7501e81a))
+- Custom allocator - ([1730d01](https://github.com/YoloDev/rstml-component/commit/1730d0100a6502a5eb115ad7c352c6fefff8871c))
+
 ## [0.0.4](https://github.com/YoloDev/rstml-component/compare/0.0.3..0.0.4) - 2024-02-23
 
 ### ✨ Features
