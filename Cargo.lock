@@ -212,8 +212,9 @@ dependencies = [
 
 [[package]]
 name = "rkyv"
-version = "0.8.0-pre1"
-source = "git+https://github.com/rkyv/rkyv?rev=be38ebe926bf8bb4898af472ba7ce90f72df74bd#be38ebe926bf8bb4898af472ba7ce90f72df74bd"
+version = "0.8.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f11954ea56d7bfee4022704c89d997ca15659bff852ab06dbee5cbeffdc723ed"
 dependencies = [
  "bitvec",
  "bytecheck",
@@ -238,8 +239,9 @@ dependencies = [
 
 [[package]]
 name = "rkyv_derive"
-version = "0.8.0-pre1"
-source = "git+https://github.com/rkyv/rkyv?rev=be38ebe926bf8bb4898af472ba7ce90f72df74bd#be38ebe926bf8bb4898af472ba7ce90f72df74bd"
+version = "0.8.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d936536583355d1ef18b9473dbe2a59d0c9ffff278a92c171feb30f2489dd0a"
 dependencies = [
  "proc-macro2",
  "quote",
