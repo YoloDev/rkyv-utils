@@ -32,7 +32,7 @@ const MAX_REFCOUNT: usize = (isize::MAX) as usize;
 #[repr(C)]
 pub(crate) struct Header {
 	ref_count: CachePadded<atomic::AtomicUsize>,
-	alloc_size: usize,
+	alloc_buffer_size: usize,
 }
 
 impl Header {
@@ -71,11 +71,7 @@ impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT, Global> {
 
 	#[inline]
 	pub unsafe fn from_raw_parts(ptr: *mut u8, cap: usize) -> Self {
-		Self {
-			buf: NonNull::new_unchecked(ptr),
-			cap_or_len: TaggedCap::from_inner(cap),
-			alloc: Global,
-		}
+		Self::from_raw_parts_in(ptr, cap, Global)
 	}
 }
 
@@ -143,6 +139,13 @@ where
 
 	#[inline]
 	pub unsafe fn from_raw_parts_in(ptr: *mut u8, cap: usize, alloc: A) -> Self {
+		// SAFETY: requirements met by the caller
+		let header = ptr.sub(Self::BUFFER_OFFSET) as *mut Header;
+		header.write(Header {
+			ref_count: CachePadded::new(AtomicUsize::new(1)),
+			alloc_buffer_size: cap,
+		});
+
 		Self {
 			buf: NonNull::new_unchecked(ptr),
 			cap_or_len: TaggedCap::from_inner(cap),
@@ -191,7 +194,7 @@ where
 		unsafe {
 			let header_ptr = self.buf.as_ptr().sub(Self::BUFFER_OFFSET) as *mut Header;
 			let header = &*header_ptr;
-			self.cap_or_len = TaggedCap::new(header.alloc_size, true);
+			self.cap_or_len = TaggedCap::new(header.alloc_buffer_size, true);
 		};
 	}
 
@@ -408,7 +411,7 @@ where
 		unsafe {
 			header.write(Header {
 				ref_count: CachePadded::new(AtomicUsize::new(1)),
-				alloc_size: cap,
+				alloc_buffer_size: cap,
 			})
 		};
 
@@ -471,7 +474,7 @@ where
 		this.buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
 
 		// SAFETY: The pointer is not null
-		unsafe { (*header).alloc_size = cap };
+		unsafe { (*header).alloc_buffer_size = cap };
 
 		// Allocators currently return a `NonNull<[u8]>` whose length
 		// matches the size requested. If that ever changes, the capacity
@@ -523,7 +526,7 @@ where
 	// and no more references exists to buffer.
 	#[inline(never)]
 	pub(crate) unsafe fn dealloc_slow(ptr: *mut Header, cap: usize, alloc: &A) {
-		debug_assert_eq!((*ptr).alloc_size, cap);
+		debug_assert_eq!((*ptr).alloc_buffer_size, cap);
 
 		let layout = Self::layout(cap).expect("Invalid layout");
 
@@ -663,7 +666,7 @@ where
 
 		// SAFETY: Size is non-zero, and we're the last reference to the buffer
 		unsafe {
-			Self::dealloc_slow(ptr, header.alloc_size, &self.alloc);
+			Self::dealloc_slow(ptr, header.alloc_buffer_size, &self.alloc);
 		}
 	}
 }
