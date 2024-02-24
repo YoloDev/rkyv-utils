@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.2](https://github.com/YoloDev/rstml-component/compare/0.0.1..0.0.2) - 2024-02-24
+
+### ✨ Features
+
+- Buffers return themselves to pools - ([8dcdcce](https://github.com/YoloDev/rstml-component/commit/8dcdcce7c42fa2c1153b29c5b039a412a21a1273))
+
 ## [0.0.1](https://github.com/YoloDev/rstml-component/compare/0.0.0..0.0.1) - 2024-02-23
 
 ### 🔨 Chore
