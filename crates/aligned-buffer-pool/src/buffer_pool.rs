@@ -1,5 +1,5 @@
 use aligned_buffer::{
-	alloc::{AllocError, Allocator, BufferAllocator, Global},
+	alloc::{AllocError, Allocator, BufferAllocator, Global, RawBuffer},
 	SharedAlignedBuffer, UniqueAlignedBuffer,
 };
 use crossbeam_queue::ArrayQueue;
@@ -129,36 +129,36 @@ impl<
 		A: Allocator + Clone,
 	> BufferAllocator<ALIGNMENT> for BufferPoolAllocator<P, ALIGNMENT, R, A>
 {
-	unsafe fn deallocate_buffer(&self, ptr: NonNull<u8>, layout: Layout, capacity: usize) {
-		struct DeallocOnDrop<'a, A: Allocator> {
+	unsafe fn deallocate_buffer(&self, raw: RawBuffer<ALIGNMENT>) {
+		struct DeallocOnDrop<'a, const ALIGNMENT: usize, A: Allocator> {
 			allocator: &'a A,
-			ptr: NonNull<u8>,
-			layout: Layout,
+			raw: RawBuffer<ALIGNMENT>,
 		}
 
-		impl<'a, A: Allocator> Drop for DeallocOnDrop<'a, A> {
+		impl<'a, const ALIGNMENT: usize, A: Allocator> Drop for DeallocOnDrop<'a, ALIGNMENT, A> {
 			fn drop(&mut self) {
-				unsafe { self.allocator.deallocate(self.ptr, self.layout) }
+				let (ptr, layout) = self.raw.alloc_info();
+				unsafe { self.allocator.deallocate(ptr, layout) }
 			}
 		}
 
 		let guard = DeallocOnDrop {
 			allocator: &self.alloc,
-			ptr,
-			layout,
+			raw,
 		};
 
-		if self.policy.should_retain(capacity) {
+		if self.policy.should_retain(raw.capacity().size()) {
 			let alloc = self.clone();
 			self.pool_ref.with(move |pool| {
 				let unguard = ManuallyDrop::new(guard);
-				let ptr = unguard.ptr;
-				let buf = UniqueAlignedBuffer::from_raw_parts_in(ptr.as_ptr(), 0, capacity, alloc);
+				let buf = UniqueAlignedBuffer::from_raw_parts_in(raw.buf_ptr(), 0, raw.capacity(), alloc);
 				if let Err(pool) = pool.pool.push(buf) {
+					// forget the pool so it doesn't get dropped
 					std::mem::forget(pool);
-					todo!("handle pool full")
+
+					// then dealloc it using the guard
+					drop(ManuallyDrop::into_inner(unguard));
 				}
-				// drop(pool.pool.push(buf));
 			});
 		}
 	}
@@ -319,14 +319,14 @@ impl<P: BufferRetentionPolicy, const ALIGNMENT: usize, A: Allocator + Clone>
 mod tests {
 	use super::*;
 
-	// #[test]
-	// fn empty_pool_reuses_buffers() {
-	// 	let pool = AlignedBufferPool::<RetainAllRetentionPolicy, 64>::with_capacity(2);
-	// 	let mut buf = pool.get();
-	// 	buf.extend([1, 2, 3]);
-	// 	drop(buf);
+	#[test]
+	fn empty_pool_reuses_buffers() {
+		let pool = AlignedBufferPool::<RetainAllRetentionPolicy, 64>::with_capacity(2);
+		let mut buf = pool.get();
+		buf.extend([1, 2, 3]);
+		drop(buf);
 
-	// 	let buf = pool.get();
-	// 	assert!(buf.capacity() >= 3);
-	// }
+		let buf = pool.get();
+		assert!(buf.capacity() >= 3);
+	}
 }

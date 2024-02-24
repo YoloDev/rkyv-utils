@@ -657,7 +657,7 @@ where
 		header.ref_count.store(1, atomic::Ordering::Release);
 
 		let ptr = self.buf;
-		let cap = self.cap_or_len;
+		let cap = TaggedCap::new(header.alloc_buffer_size, true);
 		debug_assert_eq!(cap.value(), header.alloc_buffer_size);
 
 		// SAFETY: Size is non-zero, and we're the last reference to the buffer

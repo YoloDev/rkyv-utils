@@ -272,6 +272,8 @@ mod tests {
 		let archived = rkyv::access::<SharedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&buffer)
 			.expect("failed byte-check");
 
-		assert_eq!(archived.as_slice(), original.as_slice());
+		let archived = archived.as_slice();
+		let original = original.as_slice();
+		assert_eq!(archived, original);
 	}
 }

@@ -1,4 +1,7 @@
-use aligned_buffer::SharedAlignedBuffer;
+use aligned_buffer::{
+	alloc::{BufferAllocator, Global},
+	SharedAlignedBuffer,
+};
 use rkyv::{
 	bytecheck::CheckBytes,
 	ptr_meta::Pointee,
@@ -8,20 +11,29 @@ use rkyv::{
 };
 use std::{fmt, marker::PhantomData, mem, ops};
 
-pub struct OwnedArchive<T: Archive, const ALIGNMENT: usize> {
-	buffer: SharedAlignedBuffer<ALIGNMENT>,
+pub struct OwnedArchive<T: Archive, const ALIGNMENT: usize, A = Global>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
+	buffer: SharedAlignedBuffer<ALIGNMENT, A>,
 	pos: usize,
 	_phantom: PhantomData<T>,
 }
 
-impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
+impl<T: Archive, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[allow(dead_code)]
 	const ALIGNMENT_OK: () = assert!(mem::size_of::<T::Archived>() <= ALIGNMENT);
 }
 
 // It's safe to clone an `OwnedArchive` because the inner buffer is shared and guarantees
 // that clones returns the a stable reference to the same data.
-impl<T: Archive, const ALIGNMENT: usize> Clone for OwnedArchive<T, ALIGNMENT> {
+impl<T: Archive, const ALIGNMENT: usize, A> Clone for OwnedArchive<T, ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT> + Clone,
+{
 	#[inline]
 	fn clone(&self) -> Self {
 		Self {
@@ -33,8 +45,11 @@ impl<T: Archive, const ALIGNMENT: usize> Clone for OwnedArchive<T, ALIGNMENT> {
 }
 
 #[cfg(feature = "bytecheck")]
-impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
-	pub fn new<E>(buffer: SharedAlignedBuffer<ALIGNMENT>) -> Result<Self, E>
+impl<T: Archive, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
+	pub fn new<E>(buffer: SharedAlignedBuffer<ALIGNMENT, A>) -> Result<Self, E>
 	where
 		E: rancor::Error,
 		T::Archived: CheckBytes<Strategy<DefaultValidator, E>>,
@@ -43,7 +58,7 @@ impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
 		Self::new_with_pos(buffer, pos)
 	}
 
-	pub fn new_with_pos<E>(buffer: SharedAlignedBuffer<ALIGNMENT>, pos: usize) -> Result<Self, E>
+	pub fn new_with_pos<E>(buffer: SharedAlignedBuffer<ALIGNMENT, A>, pos: usize) -> Result<Self, E>
 	where
 		E: rancor::Error,
 		T::Archived: CheckBytes<Strategy<DefaultValidator, E>>,
@@ -53,7 +68,7 @@ impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
 	}
 
 	pub fn new_with_context<C, E>(
-		buffer: SharedAlignedBuffer<ALIGNMENT>,
+		buffer: SharedAlignedBuffer<ALIGNMENT, A>,
 		context: &mut C,
 	) -> Result<Self, E>
 	where
@@ -66,7 +81,7 @@ impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
 	}
 
 	pub fn new_with_pos_and_context<C, E>(
-		buffer: SharedAlignedBuffer<ALIGNMENT>,
+		buffer: SharedAlignedBuffer<ALIGNMENT, A>,
 		pos: usize,
 		context: &mut C,
 	) -> Result<Self, E>
@@ -86,13 +101,16 @@ impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
+impl<T: Archive, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	/// # Safety
 	///
 	/// - The byte slice must represent an archived object.
 	/// - The root of the object must be stored at the end of the slice (this is the
 	///   default behavior).
-	pub unsafe fn new_unchecked(buffer: SharedAlignedBuffer<ALIGNMENT>) -> Self {
+	pub unsafe fn new_unchecked(buffer: SharedAlignedBuffer<ALIGNMENT, A>) -> Self {
 		let pos = buffer.len().saturating_sub(mem::size_of::<T::Archived>());
 		Self::new_unchecked_with_pos(buffer, pos)
 	}
@@ -100,7 +118,10 @@ impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
 	/// # Safety
 	///
 	/// A `T::Archived` must be located at the given position in the byte slice.
-	pub unsafe fn new_unchecked_with_pos(buffer: SharedAlignedBuffer<ALIGNMENT>, pos: usize) -> Self {
+	pub unsafe fn new_unchecked_with_pos(
+		buffer: SharedAlignedBuffer<ALIGNMENT, A>,
+		pos: usize,
+	) -> Self {
 		Self {
 			buffer,
 			pos,
@@ -109,7 +130,10 @@ impl<T: Archive, const ALIGNMENT: usize> OwnedArchive<T, ALIGNMENT> {
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize> ops::Deref for OwnedArchive<T, ALIGNMENT> {
+impl<T: Archive, const ALIGNMENT: usize, A> ops::Deref for OwnedArchive<T, ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	type Target = T::Archived;
 
 	#[inline]
@@ -120,15 +144,19 @@ impl<T: Archive, const ALIGNMENT: usize> ops::Deref for OwnedArchive<T, ALIGNMEN
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize> AsRef<T::Archived> for OwnedArchive<T, ALIGNMENT> {
+impl<T: Archive, const ALIGNMENT: usize, A> AsRef<T::Archived> for OwnedArchive<T, ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT>,
+{
 	#[inline]
 	fn as_ref(&self) -> &T::Archived {
 		self
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize> fmt::Debug for OwnedArchive<T, ALIGNMENT>
+impl<T: Archive, const ALIGNMENT: usize, A> fmt::Debug for OwnedArchive<T, ALIGNMENT, A>
 where
+	A: BufferAllocator<ALIGNMENT>,
 	T::Archived: fmt::Debug,
 {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -136,8 +164,9 @@ where
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize> fmt::Display for OwnedArchive<T, ALIGNMENT>
+impl<T: Archive, const ALIGNMENT: usize, A> fmt::Display for OwnedArchive<T, ALIGNMENT, A>
 where
+	A: BufferAllocator<ALIGNMENT>,
 	T::Archived: fmt::Display,
 {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -173,13 +202,10 @@ mod tests {
 	fn owned_archive() {
 		let pool = SerializerPool::<RetainAllRetentionPolicy, 64>::with_capacity(10);
 		let original = TestStruct1::new("test1", 10);
-		let buffer = pool
-			.serialize(&original)
-			.expect("failed to serialize")
-			.into_shared();
+		let buffer = pool.serialize(&original).expect("failed to serialize");
 
-		let owned_archive =
-			OwnedArchive::<TestStruct1, 64>::new::<rancor::BoxedError>(buffer).expect("failed to create");
+		let owned_archive = OwnedArchive::<TestStruct1, 64, _>::new::<rancor::BoxedError>(buffer)
+			.expect("failed to create");
 
 		assert_eq!(owned_archive.name, original.name);
 		assert_eq!(owned_archive.boxed_name, original.boxed_name);
@@ -190,13 +216,10 @@ mod tests {
 	fn clone_owned_archive() {
 		let pool = SerializerPool::<RetainAllRetentionPolicy, 64>::with_capacity(10);
 		let original = TestStruct1::new("test1", 10);
-		let buffer = pool
-			.serialize(&original)
-			.expect("failed to serialize")
-			.into_shared();
+		let buffer = pool.serialize(&original).expect("failed to serialize");
 
-		let owned_archive =
-			OwnedArchive::<TestStruct1, 64>::new::<rancor::BoxedError>(buffer).expect("failed to create");
+		let owned_archive = OwnedArchive::<TestStruct1, 64, _>::new::<rancor::BoxedError>(buffer)
+			.expect("failed to create");
 
 		let clone = owned_archive.clone();
 		assert_eq!(owned_archive.name, clone.name);

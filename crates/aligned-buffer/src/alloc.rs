@@ -403,6 +403,7 @@ pub trait BufferAllocator<const ALIGNMENT: usize>: Allocator {
 }
 
 /// A raw buffer.
+#[derive(Debug, Clone, Copy)]
 pub struct RawBuffer<const ALIGNMENT: usize> {
 	pub(crate) buf: NonNull<u8>,
 	pub(crate) cap: Cap,
@@ -419,8 +420,8 @@ impl<const ALIGNMENT: usize> RawBuffer<ALIGNMENT> {
 
 	/// Returns a pointer to the start of the buffer.
 	#[inline]
-	pub fn buf_ptr(&self) -> *mut u8 {
-		self.buf.as_ptr()
+	pub fn buf_ptr(&self) -> NonNull<u8> {
+		self.buf
 	}
 
 	/// Returns the capacity of the buffer.
