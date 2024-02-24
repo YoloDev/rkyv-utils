@@ -1,10 +1,15 @@
 use crate::{
 	alloc::{BufferAllocator, Global},
+	cap::Cap,
 	raw::{RawAlignedBuffer, RawBufferError},
 	SharedAlignedBuffer,
 };
 use core::fmt;
-use std::{cmp, ops, ptr, slice::SliceIndex};
+use std::{
+	cmp, ops,
+	ptr::{self, NonNull},
+	slice::SliceIndex,
+};
 
 #[derive(Debug, thiserror::Error)]
 #[error("failed to reserve capacity")]
@@ -137,7 +142,7 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// };
 	/// assert_eq!(&*rebuilt, &[1, 2]);
 	/// ```
-	pub fn into_raw_parts(self) -> (*mut u8, usize, usize) {
+	pub fn into_raw_parts(self) -> (NonNull<u8>, usize, Cap) {
 		let (ptr, cap) = self.buf.into_raw_parts();
 		(ptr, self.len, cap)
 	}
@@ -194,7 +199,7 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// assert_eq!(&*rebuilt, &[1, 2]);
 	/// ```
 	#[inline]
-	pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize, capacity: usize) -> Self {
+	pub unsafe fn from_raw_parts(ptr: NonNull<u8>, len: usize, capacity: Cap) -> Self {
 		let buf = RawAlignedBuffer::from_raw_parts(ptr, capacity);
 		Self { buf, len }
 	}
@@ -307,7 +312,7 @@ where
 	/// };
 	/// assert_eq!(&*rebuilt, &[1, 2]);
 	/// ```
-	pub fn into_raw_parts_with_alloc(self) -> (*mut u8, usize, usize, A) {
+	pub fn into_raw_parts_with_alloc(self) -> (NonNull<u8>, usize, Cap, A) {
 		let (ptr, cap, alloc) = self.buf.into_raw_parts_with_alloc();
 		(ptr, self.len, cap, alloc)
 	}
@@ -364,7 +369,7 @@ where
 	/// assert_eq!(&*rebuilt, &[1, 2]);
 	/// ```
 	#[inline]
-	pub unsafe fn from_raw_parts_in(ptr: *mut u8, len: usize, capacity: usize, alloc: A) -> Self {
+	pub unsafe fn from_raw_parts_in(ptr: NonNull<u8>, len: usize, capacity: Cap, alloc: A) -> Self {
 		let buf = RawAlignedBuffer::from_raw_parts_in(ptr, capacity, alloc);
 		Self { buf, len }
 	}

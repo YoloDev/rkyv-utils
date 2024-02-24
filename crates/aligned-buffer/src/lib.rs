@@ -3,6 +3,7 @@ mod shared;
 mod unique;
 
 pub mod alloc;
+pub mod cap;
 
 #[cfg(feature = "bytes")]
 mod bytes;

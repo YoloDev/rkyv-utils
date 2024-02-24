@@ -1,3 +1,4 @@
+use crate::cap::Cap;
 use std::{
 	alloc::{self, Layout},
 	ptr::{self, NonNull},
@@ -395,8 +396,57 @@ pub trait BufferAllocator<const ALIGNMENT: usize>: Allocator {
 	///
 	/// [*currently allocated*]: Allocator#currently-allocated-memory
 	/// [*fit*]: Allocator#memory-fitting
-	unsafe fn deallocate_buffer(&self, ptr: NonNull<u8>, layout: Layout, _capacity: usize) {
+	unsafe fn deallocate_buffer(&self, raw: RawBuffer<ALIGNMENT>) {
+		let (ptr, layout) = raw.alloc_info();
 		self.deallocate(ptr, layout);
+	}
+}
+
+/// A raw buffer.
+pub struct RawBuffer<const ALIGNMENT: usize> {
+	pub(crate) buf: NonNull<u8>,
+	pub(crate) cap: Cap,
+}
+
+impl<const ALIGNMENT: usize> RawBuffer<ALIGNMENT> {
+	/// Creates a new raw buffer.
+	///
+	/// # Safety
+	/// The caller must ensure that the buffer is properly aligned and has the correct capacity.
+	pub(crate) unsafe fn new(buf: NonNull<u8>, capacity: Cap) -> Self {
+		Self { buf, cap: capacity }
+	}
+
+	/// Returns a pointer to the start of the buffer.
+	#[inline]
+	pub fn buf_ptr(&self) -> *mut u8 {
+		self.buf.as_ptr()
+	}
+
+	/// Returns the capacity of the buffer.
+	#[inline]
+	pub fn capacity(&self) -> Cap {
+		self.cap
+	}
+
+	/// Returns the allocation pointer and layout.
+	#[inline]
+	pub fn alloc_info(&self) -> (NonNull<u8>, Layout) {
+		let layout = crate::raw::RawAlignedBuffer::<ALIGNMENT>::layout(self.cap.0.value())
+			.expect("Invalid layout");
+
+		let header = unsafe {
+			self
+				.buf
+				.as_ptr()
+				.sub(crate::raw::RawAlignedBuffer::<ALIGNMENT>::BUFFER_OFFSET)
+		};
+
+		debug_assert_eq!(self.cap.0.value(), unsafe {
+			(*(header as *const crate::raw::Header)).alloc_buffer_size
+		});
+
+		(unsafe { NonNull::new_unchecked(header) }, layout)
 	}
 }
 

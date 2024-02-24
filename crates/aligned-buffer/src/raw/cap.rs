@@ -46,16 +46,6 @@ impl TaggedCap {
 		let value = value_part | tag_part;
 		Self { value }
 	}
-
-	#[inline(always)]
-	pub const fn into_inner(self) -> usize {
-		self.value
-	}
-
-	#[inline(always)]
-	pub const unsafe fn from_inner(value: usize) -> Self {
-		Self { value }
-	}
 }
 
 impl fmt::Debug for TaggedCap {

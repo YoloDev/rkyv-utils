@@ -1,8 +1,11 @@
 mod cap;
 mod layout;
 
-use self::{cap::TaggedCap, layout::LayoutHelper};
-use crate::alloc::{BufferAllocator, Global};
+use self::layout::LayoutHelper;
+use crate::{
+	alloc::{BufferAllocator, Global},
+	cap::Cap,
+};
 use crossbeam_utils::CachePadded;
 use std::{
 	alloc::{handle_alloc_error, Layout},
@@ -12,6 +15,8 @@ use std::{
 	ptr::{self, NonNull},
 	sync::atomic::{self, AtomicUsize},
 };
+
+pub(crate) use self::cap::TaggedCap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RawBufferError {
@@ -31,8 +36,8 @@ const MAX_REFCOUNT: usize = (isize::MAX) as usize;
 
 #[repr(C)]
 pub(crate) struct Header {
-	ref_count: CachePadded<atomic::AtomicUsize>,
-	alloc_size: usize,
+	pub(crate) ref_count: CachePadded<atomic::AtomicUsize>,
+	pub(crate) alloc_buffer_size: usize,
 }
 
 impl Header {
@@ -64,18 +69,14 @@ unsafe impl<const ALIGNMENT: usize, A> Sync for RawAlignedBuffer<ALIGNMENT, A> w
 }
 
 impl<const ALIGNMENT: usize> RawAlignedBuffer<ALIGNMENT, Global> {
-	pub fn into_raw_parts(self) -> (*mut u8, usize) {
+	pub fn into_raw_parts(self) -> (NonNull<u8>, Cap) {
 		let me = ManuallyDrop::new(self);
-		(me.buf.as_ptr(), me.cap_or_len.into_inner())
+		(me.buf, Cap(me.cap_or_len))
 	}
 
 	#[inline]
-	pub unsafe fn from_raw_parts(ptr: *mut u8, cap: usize) -> Self {
-		Self {
-			buf: NonNull::new_unchecked(ptr),
-			cap_or_len: TaggedCap::from_inner(cap),
-			alloc: Global,
-		}
+	pub unsafe fn from_raw_parts(ptr: NonNull<u8>, cap: Cap) -> Self {
+		Self::from_raw_parts_in(ptr, cap, Global)
 	}
 }
 
@@ -87,7 +88,7 @@ where
 	// to round up a request of less than 8 bytes to at least 8 bytes.
 	const MIN_NON_ZERO_CAP: usize = 8;
 
-	const BUFFER_OFFSET: usize = {
+	pub(crate) const BUFFER_OFFSET: usize = {
 		let buffer_layout = LayoutHelper::from_size_alignment(0, ALIGNMENT);
 
 		let (_, offset) = Header::LAYOUT.extend(buffer_layout);
@@ -97,7 +98,7 @@ where
 	pub(crate) const MAX_CAPACITY: usize = TaggedCap::MAX_VALUE - Self::BUFFER_OFFSET - 64;
 
 	#[inline]
-	fn layout(size: usize) -> Result<Layout, RawBufferError> {
+	pub(crate) fn layout(size: usize) -> Result<Layout, RawBufferError> {
 		let header_layout = Header::LAYOUT.into_layout();
 
 		// SAFETY: We know that the alignment is valid, because else we would get compiler errors
@@ -135,17 +136,17 @@ where
 		buf
 	}
 
-	pub fn into_raw_parts_with_alloc(self) -> (*mut u8, usize, A) {
+	pub fn into_raw_parts_with_alloc(self) -> (NonNull<u8>, Cap, A) {
 		let me = ManuallyDrop::new(self);
 		let alloc = unsafe { ptr::read(&me.alloc as *const A) };
-		(me.buf.as_ptr(), me.cap_or_len.into_inner(), alloc)
+		(me.buf, Cap(me.cap_or_len), alloc)
 	}
 
 	#[inline]
-	pub unsafe fn from_raw_parts_in(ptr: *mut u8, cap: usize, alloc: A) -> Self {
+	pub unsafe fn from_raw_parts_in(ptr: NonNull<u8>, cap: Cap, alloc: A) -> Self {
 		Self {
-			buf: NonNull::new_unchecked(ptr),
-			cap_or_len: TaggedCap::from_inner(cap),
+			buf: ptr,
+			cap_or_len: cap.0,
 			alloc,
 		}
 	}
@@ -191,7 +192,7 @@ where
 		unsafe {
 			let header_ptr = self.buf.as_ptr().sub(Self::BUFFER_OFFSET) as *mut Header;
 			let header = &*header_ptr;
-			self.cap_or_len = TaggedCap::new(header.alloc_size, true);
+			self.cap_or_len = TaggedCap::new(header.alloc_buffer_size, true);
 		};
 	}
 
@@ -408,7 +409,7 @@ where
 		unsafe {
 			header.write(Header {
 				ref_count: CachePadded::new(AtomicUsize::new(1)),
-				alloc_size: cap,
+				alloc_buffer_size: cap,
 			})
 		};
 
@@ -471,7 +472,7 @@ where
 		this.buf = unsafe { NonNull::new_unchecked(ptr.add(Self::BUFFER_OFFSET)) };
 
 		// SAFETY: The pointer is not null
-		unsafe { (*header).alloc_size = cap };
+		unsafe { (*header).alloc_buffer_size = cap };
 
 		// Allocators currently return a `NonNull<[u8]>` whose length
 		// matches the size requested. If that ever changes, the capacity
@@ -489,13 +490,8 @@ where
 
 			// SAFETY: The pointer is non-null and the layout is correct
 			unsafe {
-				let ptr = buf
-					.buf
-					.as_ptr()
-					.sub(RawAlignedBuffer::<ALIGNMENT>::BUFFER_OFFSET) as *mut Header;
-
-				RawAlignedBuffer::<ALIGNMENT, A>::dealloc_slow(ptr, buf.cap_or_len(), &buf.alloc)
-			};
+				RawAlignedBuffer::<ALIGNMENT, A>::dealloc_slow(buf.buf, buf.cap_or_len, &buf.alloc);
+			}
 
 			buf.buf = NonNull::dangling();
 			buf.cap_or_len = TaggedCap::zero();
@@ -522,13 +518,11 @@ where
 	// Safety: requires that `ptr` and `cap` is valid
 	// and no more references exists to buffer.
 	#[inline(never)]
-	pub(crate) unsafe fn dealloc_slow(ptr: *mut Header, cap: usize, alloc: &A) {
-		debug_assert_eq!((*ptr).alloc_size, cap);
-
-		let layout = Self::layout(cap).expect("Invalid layout");
+	pub(crate) unsafe fn dealloc_slow(buf: NonNull<u8>, cap: TaggedCap, alloc: &A) {
+		let info = crate::alloc::RawBuffer::new(buf, Cap(cap));
 
 		// SAFETY: The pointer is non-null and the layout is correct
-		unsafe { alloc.deallocate_buffer(NonNull::new_unchecked(ptr as *mut u8), layout, cap) };
+		unsafe { alloc.deallocate_buffer(info) };
 	}
 
 	/// Gets the number of shared references to this buffer.
@@ -660,10 +654,15 @@ where
 		//
 		// [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
 		header.ref_count.load(atomic::Ordering::Acquire);
+		header.ref_count.store(1, atomic::Ordering::Release);
+
+		let ptr = self.buf;
+		let cap = self.cap_or_len;
+		debug_assert_eq!(cap.value(), header.alloc_buffer_size);
 
 		// SAFETY: Size is non-zero, and we're the last reference to the buffer
 		unsafe {
-			Self::dealloc_slow(ptr, header.alloc_size, &self.alloc);
+			Self::dealloc_slow(ptr, cap, &self.alloc);
 		}
 	}
 }
