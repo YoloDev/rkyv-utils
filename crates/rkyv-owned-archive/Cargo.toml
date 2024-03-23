@@ -12,7 +12,7 @@ keywords = ["buffer", "rkyv", "bytes"]
 
 [dependencies]
 aligned-buffer = { version = "0.0.6", path = "../aligned-buffer", default-features = false }
-rkyv = { version = "0.8.0-alpha.1", default-features = false }
+rkyv = { version = "0.8.0-alpha.2", default-features = false }
 
 [dev-dependencies]
 aligned-buffer-pool = { version = "0.0.2", path = "../aligned-buffer-pool", default-features = false }

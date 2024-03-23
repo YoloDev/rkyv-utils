@@ -14,7 +14,7 @@ keywords = ["buffer", "rkyv", "bytes"]
 bytes = { version = "1", default-features = false, optional = true, features = ["std"] }
 const_panic = { version = "0.2", default-features = false }
 crossbeam-utils = "0.8"
-rkyv = { version = "0.8.0-alpha.1", default-features = false, features = ["std", "bytecheck"], optional = true }
+rkyv = { version = "0.8.0-alpha.2", default-features = false, features = ["std", "bytecheck"], optional = true }
 stable_deref_trait = { version = "1", default-features = false, optional = true }
 static_assertions = "1"
 thiserror = "1"
