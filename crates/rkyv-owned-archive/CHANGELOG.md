@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.4](https://github.com/YoloDev/rstml-component/compare/0.0.3..0.0.4) - 2024-03-24
+
+### ✨ Features
+
+- Provide default alignment - ([cd0b9bf](https://github.com/YoloDev/rstml-component/commit/cd0b9bfe0ef2778759e273633747984d5ec36399))
+- Map owned archive - ([7a7897b](https://github.com/YoloDev/rstml-component/commit/7a7897b5ce22e3999a5d9c116895921388faa30d))
+
 ## [0.0.3](https://github.com/YoloDev/rstml-component/compare/0.0.2..0.0.3) - 2024-03-24
 
 ### ✨ Features

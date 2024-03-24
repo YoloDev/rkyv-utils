@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.8](https://github.com/YoloDev/rstml-component/compare/0.0.7..0.0.8) - 2024-03-24
+
+### ✨ Features
+
+- Provide default alignment - ([cd0b9bf](https://github.com/YoloDev/rstml-component/commit/cd0b9bfe0ef2778759e273633747984d5ec36399))
+
 ## [0.0.7](https://github.com/YoloDev/rstml-component/compare/0.0.6..0.0.7) - 2024-03-24
 
 ### ✨ Features
