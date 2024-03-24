@@ -99,6 +99,24 @@ where
 			}),
 		}
 	}
+
+	pub fn map<U: Portable, F>(self, f: F) -> OwnedArchive<U, ALIGNMENT, A>
+	where
+		F: for<'a> FnOnce(&'a T) -> &'a U,
+	{
+		let ptr_start = f(&*self) as *const U as usize;
+		let ptr_end = ptr_start + mem::size_of::<U>();
+		let buf_start = self.buffer.as_ptr() as usize;
+		let buf_end = buf_start + self.buffer.len();
+
+		// check that U is within the bounds of the buffer
+		assert!((buf_start..=buf_end).contains(&ptr_start));
+		assert!((buf_start..=buf_end).contains(&ptr_end));
+		let pos = ptr_start - buf_start;
+
+		// SAFETY: U is within the bounds of the buffer
+		unsafe { OwnedArchive::new_unchecked_with_pos(self.buffer, pos) }
+	}
 }
 
 impl<T: Portable, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
@@ -227,5 +245,19 @@ mod tests {
 		assert_eq!(owned_archive.name, clone.name);
 		assert_eq!(owned_archive.boxed_name, clone.boxed_name);
 		assert_eq!(owned_archive.age, clone.age);
+	}
+
+	#[test]
+	fn mapped_owned_archive() {
+		let pool = SerializerPool::<RetainAllRetentionPolicy, 64>::with_capacity(10);
+		let original = TestStruct1::new("test1", 10);
+		let buffer = pool.serialize(&original).expect("failed to serialize");
+
+		let owned_archive =
+			OwnedArchive::<ArchivedTestStruct1, 64, _>::new::<rancor::BoxedError>(buffer)
+				.expect("failed to create");
+
+		let mapped = owned_archive.map(|a| &a.name);
+		assert_eq!(*mapped, original.name);
 	}
 }
