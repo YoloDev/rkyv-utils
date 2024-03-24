@@ -17,6 +17,11 @@ use std::{fmt, marker::PhantomData, mem, ops};
 #[cfg(feature = "pool")]
 pub use pool::PooledArchive;
 
+#[cfg(feature = "pool")]
+pub use aligned_buffer_pool;
+
+pub use aligned_buffer;
+
 pub struct OwnedArchive<T: Portable, const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global>
 where
 	A: BufferAllocator<ALIGNMENT>,

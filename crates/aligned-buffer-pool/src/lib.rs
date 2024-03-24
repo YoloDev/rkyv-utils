@@ -2,6 +2,7 @@ mod buffer_pool;
 mod serializer_pool;
 mod validator_pool;
 
+pub use aligned_buffer;
 pub use buffer_pool::{
 	AlignedBufferPool, BufferPoolAllocator, BufferRetentionPolicy, ConstMaxSizeRetentionPolicy,
 	RetainAllRetentionPolicy, SharedPooledAlignedBuffer, UniquePooledAlignedBuffer,
