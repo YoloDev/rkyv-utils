@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.5](https://github.com/YoloDev/rstml-component/compare/0.0.4..0.0.5) - 2024-03-24
+
+### ✨ Features
+
+- Re-exports - ([1b82745](https://github.com/YoloDev/rstml-component/commit/1b82745f9f1ee02d23477b297633ea752303564e))
+- Add validator pools - ([6bb232c](https://github.com/YoloDev/rstml-component/commit/6bb232c351f2a3f4e19fd607d20eee461c75195c))
+
 ## [0.0.4](https://github.com/YoloDev/rstml-component/compare/0.0.3..0.0.4) - 2024-03-24
 
 ### ✨ Features
