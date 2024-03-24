@@ -12,6 +12,6 @@ keywords = ["buffer", "rkyv", "bytes"]
 
 [dependencies]
 aligned-buffer = { version = "0.0.6", path = "../aligned-buffer", default-features = false, features = ["rkyv"] }
-crossbeam-queue = "0.3.11"
-fxhash = { version = "0.2.1", default-features = false }
-rkyv = { version = "0.8.0-alpha.1", default-features = false, features = ["std", "bytecheck"] }
+crossbeam-queue = { workspace = true }
+fxhash = { workspace = true }
+rkyv = { workspace = true, features = ["std", "bytecheck"] }

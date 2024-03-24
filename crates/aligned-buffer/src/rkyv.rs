@@ -9,7 +9,7 @@ use rkyv::{
 	rancor::Fallible,
 	ser::{Positional, Writer, WriterExt},
 	validation::ArchiveContext,
-	Archive, Deserialize, Serialize,
+	Archive, Deserialize, Portable, Serialize,
 };
 use std::{convert::Infallible, ops};
 
@@ -44,6 +44,9 @@ impl<const ALIGNMENT: usize> AsRef<[u8]> for ArchivedAlignedBuffer<ALIGNMENT> {
 		self
 	}
 }
+
+// SAFETY: ArchivedAlignedBuffer<ALIGNMENT> is repr(transparent) over a ArchivedBox<[u8]>.
+unsafe impl<const ALIGNMENT: usize> Portable for ArchivedAlignedBuffer<ALIGNMENT> {}
 
 unsafe impl<C: Fallible + ?Sized, const ALIGNMENT: usize> CheckBytes<C>
 	for ArchivedAlignedBuffer<ALIGNMENT>
@@ -224,8 +227,8 @@ mod tests {
 			.into_writer()
 			.into_shared();
 
-		let archived =
-			rkyv::access::<TestStruct1, rkyv::rancor::BoxedError>(&buffer).expect("failed byte-check");
+		let archived = rkyv::access::<ArchivedTestStruct1, rkyv::rancor::BoxedError>(&buffer)
+			.expect("failed byte-check");
 
 		assert_eq!(archived.name, original.name);
 		assert_eq!(archived.boxed_name, original.boxed_name);
@@ -249,7 +252,7 @@ mod tests {
 		vec.push(0);
 		vec.extend(serialized.as_slice());
 
-		let archived = rkyv::access::<SharedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&vec[1..]);
+		let archived = rkyv::access::<ArchivedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&vec[1..]);
 
 		assert!(archived.is_err());
 	}
@@ -269,7 +272,7 @@ mod tests {
 			.into_writer()
 			.into_shared();
 
-		let archived = rkyv::access::<SharedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&buffer)
+		let archived = rkyv::access::<ArchivedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&buffer)
 			.expect("failed byte-check");
 
 		let archived = archived.as_slice();

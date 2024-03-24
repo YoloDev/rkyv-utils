@@ -7,11 +7,11 @@ use rkyv::{
 	ptr_meta::Pointee,
 	rancor::{self, Strategy},
 	validation::{util::access_pos_with_context, validators::DefaultValidator, ArchiveContext},
-	Archive,
+	Portable,
 };
 use std::{fmt, marker::PhantomData, mem, ops};
 
-pub struct OwnedArchive<T: Archive, const ALIGNMENT: usize, A = Global>
+pub struct OwnedArchive<T: Portable, const ALIGNMENT: usize, A = Global>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
@@ -20,17 +20,17 @@ where
 	_phantom: PhantomData<T>,
 }
 
-impl<T: Archive, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
 	#[allow(dead_code)]
-	const ALIGNMENT_OK: () = assert!(mem::size_of::<T::Archived>() <= ALIGNMENT);
+	const ALIGNMENT_OK: () = assert!(mem::size_of::<T>() <= ALIGNMENT);
 }
 
 // It's safe to clone an `OwnedArchive` because the inner buffer is shared and guarantees
 // that clones returns the a stable reference to the same data.
-impl<T: Archive, const ALIGNMENT: usize, A> Clone for OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> Clone for OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT> + Clone,
 {
@@ -45,23 +45,23 @@ where
 }
 
 #[cfg(feature = "bytecheck")]
-impl<T: Archive, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
 	pub fn new<E>(buffer: SharedAlignedBuffer<ALIGNMENT, A>) -> Result<Self, E>
 	where
 		E: rancor::Error,
-		T::Archived: CheckBytes<Strategy<DefaultValidator, E>>,
+		T: CheckBytes<Strategy<DefaultValidator, E>>,
 	{
-		let pos = buffer.len().saturating_sub(mem::size_of::<T::Archived>());
+		let pos = buffer.len().saturating_sub(mem::size_of::<T>());
 		Self::new_with_pos(buffer, pos)
 	}
 
 	pub fn new_with_pos<E>(buffer: SharedAlignedBuffer<ALIGNMENT, A>, pos: usize) -> Result<Self, E>
 	where
 		E: rancor::Error,
-		T::Archived: CheckBytes<Strategy<DefaultValidator, E>>,
+		T: CheckBytes<Strategy<DefaultValidator, E>>,
 	{
 		let mut validator = DefaultValidator::new(&buffer);
 		Self::new_with_pos_and_context(buffer, pos, &mut validator)
@@ -72,11 +72,11 @@ where
 		context: &mut C,
 	) -> Result<Self, E>
 	where
-		T::Archived: CheckBytes<Strategy<C, E>> + Pointee<Metadata = ()>,
+		T: CheckBytes<Strategy<C, E>> + Pointee<Metadata = ()>,
 		C: ArchiveContext<E> + ?Sized,
 		E: rancor::Error,
 	{
-		let pos = buffer.len().saturating_sub(mem::size_of::<T::Archived>());
+		let pos = buffer.len().saturating_sub(mem::size_of::<T>());
 		Self::new_with_pos_and_context(buffer, pos, context)
 	}
 
@@ -86,7 +86,7 @@ where
 		context: &mut C,
 	) -> Result<Self, E>
 	where
-		T::Archived: CheckBytes<Strategy<C, E>> + Pointee<Metadata = ()>,
+		T: CheckBytes<Strategy<C, E>> + Pointee<Metadata = ()>,
 		C: ArchiveContext<E> + ?Sized,
 		E: rancor::Error,
 	{
@@ -101,7 +101,7 @@ where
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
@@ -111,7 +111,7 @@ where
 	/// - The root of the object must be stored at the end of the slice (this is the
 	///   default behavior).
 	pub unsafe fn new_unchecked(buffer: SharedAlignedBuffer<ALIGNMENT, A>) -> Self {
-		let pos = buffer.len().saturating_sub(mem::size_of::<T::Archived>());
+		let pos = buffer.len().saturating_sub(mem::size_of::<T>());
 		Self::new_unchecked_with_pos(buffer, pos)
 	}
 
@@ -130,11 +130,11 @@ where
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize, A> ops::Deref for OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> ops::Deref for OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
-	type Target = T::Archived;
+	type Target = T;
 
 	#[inline]
 	fn deref(&self) -> &Self::Target {
@@ -144,30 +144,30 @@ where
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize, A> AsRef<T::Archived> for OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> AsRef<T> for OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
 	#[inline]
-	fn as_ref(&self) -> &T::Archived {
+	fn as_ref(&self) -> &T {
 		self
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize, A> fmt::Debug for OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> fmt::Debug for OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
-	T::Archived: fmt::Debug,
+	T: fmt::Debug,
 {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fmt::Debug::fmt(&**self, f)
 	}
 }
 
-impl<T: Archive, const ALIGNMENT: usize, A> fmt::Display for OwnedArchive<T, ALIGNMENT, A>
+impl<T: Portable, const ALIGNMENT: usize, A> fmt::Display for OwnedArchive<T, ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
-	T::Archived: fmt::Display,
+	T: fmt::Display,
 {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		fmt::Display::fmt(&**self, f)
@@ -204,8 +204,9 @@ mod tests {
 		let original = TestStruct1::new("test1", 10);
 		let buffer = pool.serialize(&original).expect("failed to serialize");
 
-		let owned_archive = OwnedArchive::<TestStruct1, 64, _>::new::<rancor::BoxedError>(buffer)
-			.expect("failed to create");
+		let owned_archive =
+			OwnedArchive::<ArchivedTestStruct1, 64, _>::new::<rancor::BoxedError>(buffer)
+				.expect("failed to create");
 
 		assert_eq!(owned_archive.name, original.name);
 		assert_eq!(owned_archive.boxed_name, original.boxed_name);
@@ -218,8 +219,9 @@ mod tests {
 		let original = TestStruct1::new("test1", 10);
 		let buffer = pool.serialize(&original).expect("failed to serialize");
 
-		let owned_archive = OwnedArchive::<TestStruct1, 64, _>::new::<rancor::BoxedError>(buffer)
-			.expect("failed to create");
+		let owned_archive =
+			OwnedArchive::<ArchivedTestStruct1, 64, _>::new::<rancor::BoxedError>(buffer)
+				.expect("failed to create");
 
 		let clone = owned_archive.clone();
 		assert_eq!(owned_archive.name, clone.name);

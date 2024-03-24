@@ -419,7 +419,7 @@ mod tests {
 
 	fn check(buf: &[u8], value: &TestStruct1) {
 		let archived =
-			rkyv::access::<TestStruct1, rkyv::rancor::BoxedError>(buf).expect("failed to access");
+			rkyv::access::<ArchivedTestStruct1, rkyv::rancor::BoxedError>(buf).expect("failed to access");
 
 		assert_eq!(archived.name, value.name);
 		assert_eq!(archived.boxed_name, value.boxed_name);
