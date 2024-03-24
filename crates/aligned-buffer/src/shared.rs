@@ -1,7 +1,7 @@
 use crate::{
 	alloc::{BufferAllocator, Global},
 	raw::RawAlignedBuffer,
-	UniqueAlignedBuffer,
+	UniqueAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
 };
 use std::{fmt, ops, slice::SliceIndex};
 
@@ -9,7 +9,7 @@ use std::{fmt, ops, slice::SliceIndex};
 /// Typically, a `SharedAlignedBuffer` is created from a [`UniqueAlignedBuffer`].
 /// It can be cloned and shared across threads. It is effectively the same as an
 /// Arc<\[u8]>.
-pub struct SharedAlignedBuffer<const ALIGNMENT: usize, A = Global>
+pub struct SharedAlignedBuffer<const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {

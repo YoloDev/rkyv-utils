@@ -4,7 +4,7 @@ use crate::{
 };
 use aligned_buffer::{
 	alloc::{Allocator, Global},
-	SharedAlignedBuffer, UniqueAlignedBuffer,
+	SharedAlignedBuffer, UniqueAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
 };
 use crossbeam_queue::ArrayQueue;
 use fxhash::FxHashMap;
@@ -16,10 +16,14 @@ use std::{
 	sync::{Arc, Weak},
 };
 
-pub type SerializerAlignedBuffer<const ALIGNMENT: usize, P, A = Global> = SharedAlignedBuffer<
-	ALIGNMENT,
-	BufferPoolAllocator<P, ALIGNMENT, SerializerWeakRef<P, ALIGNMENT, A>, A>,
->;
+pub type SerializerAlignedBuffer<P, const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global> =
+	SharedAlignedBuffer<
+		ALIGNMENT,
+		BufferPoolAllocator<P, ALIGNMENT, SerializerWeakRef<P, ALIGNMENT, A>, A>,
+	>;
+
+pub type SerializerPoolAllocator<P, const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global> =
+	BufferPoolAllocator<P, ALIGNMENT, SerializerWeakRef<P, ALIGNMENT, A>, A>;
 
 struct RentedUnify<P: BufferRetentionPolicy, const ALIGNMENT: usize, A>
 where
@@ -61,8 +65,11 @@ where
 	unify: ArrayQueue<FxHashMap<usize, usize>>,
 }
 
-pub struct SerializerPool<P: BufferRetentionPolicy, const ALIGNMENT: usize, A = Global>
-where
+pub struct SerializerPool<
+	P: BufferRetentionPolicy,
+	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
+	A = Global,
+> where
 	A: Allocator + Clone,
 {
 	inner: Arc<Inner<P, ALIGNMENT, A>>,
@@ -120,7 +127,7 @@ where
 	>(
 		&self,
 		value: &T,
-	) -> Result<SerializerAlignedBuffer<ALIGNMENT, P, A>, rkyv::rancor::BoxedError> {
+	) -> Result<SerializerAlignedBuffer<P, ALIGNMENT, A>, rkyv::rancor::BoxedError> {
 		let mut buf = self.get();
 		buf.serialize(value)?;
 		Ok(buf.into_buffer())
@@ -136,8 +143,11 @@ where
 	}
 }
 
-pub struct Serializer<P: BufferRetentionPolicy, const ALIGNMENT: usize, A = Global>
-where
+pub struct Serializer<
+	P: BufferRetentionPolicy,
+	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
+	A = Global,
+> where
 	A: Allocator + Clone,
 {
 	writer: UniqueAlignedBuffer<
@@ -155,7 +165,7 @@ impl<P: BufferRetentionPolicy, const ALIGNMENT: usize, A> Serializer<P, ALIGNMEN
 where
 	A: Allocator + Clone,
 {
-	pub fn into_buffer(self) -> SerializerAlignedBuffer<ALIGNMENT, P, A> {
+	pub fn into_buffer(self) -> SerializerAlignedBuffer<P, ALIGNMENT, A> {
 		self.writer.into_shared()
 	}
 
@@ -168,7 +178,7 @@ where
 }
 
 impl<P: BufferRetentionPolicy, const ALIGNMENT: usize, A> From<Serializer<P, ALIGNMENT, A>>
-	for SerializerAlignedBuffer<ALIGNMENT, P, A>
+	for SerializerAlignedBuffer<P, ALIGNMENT, A>
 where
 	A: Allocator + Clone,
 {

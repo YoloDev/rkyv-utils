@@ -12,7 +12,9 @@ keywords = ["buffer", "rkyv", "bytes"]
 
 [dependencies]
 aligned-buffer = { version = "0.0.7", path = "../aligned-buffer", default-features = false }
+aligned-buffer-pool = { version = "0.0.3", path = "../aligned-buffer-pool", default-features = false, optional = true }
 rkyv = { workspace = true }
+
 
 [dev-dependencies]
 aligned-buffer-pool = { version = "0.0.3", path = "../aligned-buffer-pool", default-features = false }
@@ -20,3 +22,4 @@ aligned-buffer-pool = { version = "0.0.3", path = "../aligned-buffer-pool", defa
 [features]
 default = ["bytecheck"]
 bytecheck = ["rkyv/bytecheck"]
+pool = ["dep:aligned-buffer-pool"]

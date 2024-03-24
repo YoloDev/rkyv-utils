@@ -1,6 +1,9 @@
+#[cfg(feature = "pool")]
+mod pool;
+
 use aligned_buffer::{
 	alloc::{BufferAllocator, Global},
-	SharedAlignedBuffer,
+	SharedAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
 };
 use rkyv::{
 	bytecheck::CheckBytes,
@@ -11,7 +14,10 @@ use rkyv::{
 };
 use std::{fmt, marker::PhantomData, mem, ops};
 
-pub struct OwnedArchive<T: Portable, const ALIGNMENT: usize, A = Global>
+#[cfg(feature = "pool")]
+pub use pool::PooledArchive;
+
+pub struct OwnedArchive<T: Portable, const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {

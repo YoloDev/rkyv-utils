@@ -5,6 +5,7 @@ use self::layout::LayoutHelper;
 use crate::{
 	alloc::{BufferAllocator, Global},
 	cap::Cap,
+	DEFAULT_BUFFER_ALIGNMENT,
 };
 use crossbeam_utils::CachePadded;
 use std::{
@@ -45,7 +46,7 @@ impl Header {
 }
 
 #[repr(C)]
-pub(crate) struct RawAlignedBuffer<const ALIGNMENT: usize, A = Global>
+pub(crate) struct RawAlignedBuffer<const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {

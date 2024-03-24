@@ -1,6 +1,6 @@
 use aligned_buffer::{
 	alloc::{AllocError, Allocator, BufferAllocator, Global, RawBuffer},
-	SharedAlignedBuffer, UniqueAlignedBuffer,
+	SharedAlignedBuffer, UniqueAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
 };
 use crossbeam_queue::ArrayQueue;
 use std::{
@@ -10,12 +10,20 @@ use std::{
 	sync::{Arc, Weak},
 };
 
-pub type UniquePooledAlignedBuffer<const ALIGNMENT: usize, P, A = Global> = UniqueAlignedBuffer<
+pub type UniquePooledAlignedBuffer<
+	P,
+	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
+	A = Global,
+> = UniqueAlignedBuffer<
 	ALIGNMENT,
 	BufferPoolAllocator<P, ALIGNMENT, WeakAlignedBufferPool<P, ALIGNMENT, A>, A>,
 >;
 
-pub type SharedPooledAlignedBuffer<const ALIGNMENT: usize, P, A = Global> = SharedAlignedBuffer<
+pub type SharedPooledAlignedBuffer<
+	P,
+	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
+	A = Global,
+> = SharedAlignedBuffer<
 	ALIGNMENT,
 	BufferPoolAllocator<P, ALIGNMENT, WeakAlignedBufferPool<P, ALIGNMENT, A>, A>,
 >;
@@ -272,7 +280,7 @@ impl<P: BufferRetentionPolicy, const ALIGNMENT: usize, A: Allocator + Clone>
 	/// Gets a buffer from the pool. If the pool is empty, a new buffer is
 	/// allocated and returned.
 	#[inline]
-	pub fn get(&self) -> UniquePooledAlignedBuffer<ALIGNMENT, P, A> {
+	pub fn get(&self) -> UniquePooledAlignedBuffer<P, ALIGNMENT, A> {
 		self.inner.get()
 	}
 

@@ -2,7 +2,7 @@ use crate::{
 	alloc::{BufferAllocator, Global},
 	cap::Cap,
 	raw::{RawAlignedBuffer, RawBufferError},
-	SharedAlignedBuffer,
+	SharedAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
 };
 use core::fmt;
 use std::{
@@ -32,7 +32,7 @@ impl From<RawBufferError> for TryReserveError {
 /// of the buffer data. This type is effectively a `Vec<u8>` with a custom alignment.
 ///
 /// [`SharedAlignedBuffer`]: crate::SharedAlignedBuffer
-pub struct UniqueAlignedBuffer<const ALIGNMENT: usize, A = Global>
+pub struct UniqueAlignedBuffer<const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
