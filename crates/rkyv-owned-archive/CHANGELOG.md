@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.3](https://github.com/YoloDev/rstml-component/compare/0.0.2..0.0.3) - 2024-03-24
+
+### ✨ Features
+
+- Update to new rkyv alpha - ([3f35dc4](https://github.com/YoloDev/rstml-component/commit/3f35dc4bf062dbd33e32666495ae0fa167ba76ce))
+
 ## [0.0.2](https://github.com/YoloDev/rstml-component/compare/0.0.1..0.0.2) - 2024-02-24
 
 ### ✨ Features
