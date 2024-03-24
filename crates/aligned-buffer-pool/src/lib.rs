@@ -1,5 +1,6 @@
 mod buffer_pool;
 mod serializer_pool;
+mod validator_pool;
 
 pub use buffer_pool::{
 	AlignedBufferPool, BufferPoolAllocator, BufferRetentionPolicy, ConstMaxSizeRetentionPolicy,
@@ -9,3 +10,4 @@ pub use buffer_pool::{
 pub use serializer_pool::{
 	Serializer, SerializerAlignedBuffer, SerializerPool, SerializerPoolAllocator, SerializerWeakRef,
 };
+pub use validator_pool::{PooledValidator, ValidatorPool};
