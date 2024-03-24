@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "aligned-buffer-pool"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "aligned-buffer",
  "crossbeam-queue",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "rkyv-owned-archive"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "aligned-buffer",
  "aligned-buffer-pool",
