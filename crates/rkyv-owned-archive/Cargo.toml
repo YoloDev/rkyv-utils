@@ -1,6 +1,6 @@
 [package]
 name = "rkyv-owned-archive"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 description = "Helpers for having owned Archived types in rkyv."
 license = "MIT"
