@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.7](https://github.com/YoloDev/rstml-component/compare/0.0.6..0.0.7) - 2024-03-26
+
+### ✨ Features
+
+- Try_map - ([f6dc75f](https://github.com/YoloDev/rstml-component/commit/f6dc75f88015525931e05e209751a6b10d994b02))
+
 ## [0.0.6](https://github.com/YoloDev/rstml-component/compare/0.0.5..0.0.6) - 2024-03-26
 
 ### ✨ Features
