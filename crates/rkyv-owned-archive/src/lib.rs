@@ -135,6 +135,34 @@ where
 		// SAFETY: U is within the bounds of the buffer
 		unsafe { OwnedArchive::new_unchecked_with_pos(self.buffer, pos) }
 	}
+
+	pub fn try_map<U: Portable, E, F>(self, f: F) -> Result<OwnedArchive<U, ALIGNMENT, A>, E>
+	where
+		F: for<'a> FnOnce(&'a T) -> Result<&'a U, E>,
+	{
+		self.try_map_with_buffer(|a, _| f(a))
+	}
+
+	pub fn try_map_with_buffer<U: Portable, E, F>(
+		self,
+		f: F,
+	) -> Result<OwnedArchive<U, ALIGNMENT, A>, E>
+	where
+		F: for<'a> FnOnce(&'a T, &'a [u8]) -> Result<&'a U, E>,
+	{
+		let ptr_start = f(&*self, &self.buffer)? as *const U as usize;
+		let ptr_end = ptr_start + mem::size_of::<U>();
+		let buf_start = self.buffer.as_ptr() as usize;
+		let buf_end = buf_start + self.buffer.len();
+
+		// check that U is within the bounds of the buffer
+		assert!((buf_start..=buf_end).contains(&ptr_start));
+		assert!((buf_start..=buf_end).contains(&ptr_end));
+		let pos = ptr_start - buf_start;
+
+		// SAFETY: U is within the bounds of the buffer
+		Ok(unsafe { OwnedArchive::new_unchecked_with_pos(self.buffer, pos) })
+	}
 }
 
 impl<T: Portable, const ALIGNMENT: usize, A> OwnedArchive<T, ALIGNMENT, A>
