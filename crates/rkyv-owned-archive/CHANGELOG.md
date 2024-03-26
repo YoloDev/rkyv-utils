@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.6](https://github.com/YoloDev/rstml-component/compare/0.0.5..0.0.6) - 2024-03-26
+
+### ✨ Features
+
+- Map with buffer - ([ef8396e](https://github.com/YoloDev/rstml-component/commit/ef8396e9100491545788b3f1896dc19df9b6500c))
+
 ## [0.0.5](https://github.com/YoloDev/rstml-component/compare/0.0.4..0.0.5) - 2024-03-24
 
 ### ✨ Features
