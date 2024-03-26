@@ -115,7 +115,14 @@ where
 	where
 		F: for<'a> FnOnce(&'a T) -> &'a U,
 	{
-		let ptr_start = f(&*self) as *const U as usize;
+		self.map_with_buffer(|a, _| f(a))
+	}
+
+	pub fn map_with_buffer<U: Portable, F>(self, f: F) -> OwnedArchive<U, ALIGNMENT, A>
+	where
+		F: for<'a> FnOnce(&'a T, &'a [u8]) -> &'a U,
+	{
+		let ptr_start = f(&*self, &self.buffer) as *const U as usize;
 		let ptr_end = ptr_start + mem::size_of::<U>();
 		let buf_start = self.buffer.as_ptr() as usize;
 		let buf_end = buf_start + self.buffer.len();
