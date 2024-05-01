@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.dependencies]
-bytes = { version = "1", default-features = false }
+bytes = { version = "1.6.0", default-features = false }
 const_panic = { version = "0.2.8", default-features = false }
 crossbeam-queue = "0.3.11"
 crossbeam-utils = "0.8.19"
