@@ -22,7 +22,7 @@ pub struct AllocError;
 /// an allocator like `MyAlloc([u8; N])` cannot be moved, without updating the pointers to the
 /// allocated memory.
 ///
-/// Unlike [`GlobalAlloc`][], zero-sized allocations are allowed in `Allocator`. If an underlying
+/// Unlike [`GlobalAlloc`][std::alloc::GlobalAlloc], zero-sized allocations are allowed in `Allocator`. If an underlying
 /// allocator does not support this (like jemalloc) or return a null pointer (such as
 /// `libc::malloc`), this must be caught by the implementation.
 ///

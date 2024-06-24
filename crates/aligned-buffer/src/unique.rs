@@ -163,7 +163,7 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// * The first `length` bytes must be properly initialized.
 	/// * `capacity` needs to be the capacity that the pointer was allocated with.
 	/// * The allocated size in bytes must be no larger than `isize::MAX`.
-	///   See the safety documentation of [`pointer::offset`].
+	///   See the safety documentation of `pointer::offset`.
 	///
 	/// These requirements are always upheld by any `ptr` that has been allocated
 	/// via `UniqueAlignedBuffer`. Other allocation sources are allowed if the invariants are
@@ -181,7 +181,8 @@ impl<const ALIGNMENT: usize> UniqueAlignedBuffer<ALIGNMENT> {
 	/// that nothing else uses the pointer after calling this
 	/// function.
 	///
-	/// [`alloc::alloc`]: alloc::alloc::alloc
+	/// [`alloc::alloc`]: std::alloc::alloc
+
 	///
 	/// # Examples
 	///
@@ -294,6 +295,7 @@ where
 	/// effectively the same as calling [`truncate`] or [`set_len`].
 	///
 	/// [`from_raw_parts_in`]: UniqueAlignedBuffer::from_raw_parts_in
+	/// [`from_raw_parts`]: UniqueAlignedBuffer::from_raw_parts
 	/// [`truncate`]: UniqueAlignedBuffer::truncate
 	/// [`set_len`]: UniqueAlignedBuffer::set_len
 	///
@@ -333,7 +335,7 @@ where
 	/// * The first `length` bytes must be properly initialized.
 	/// * `capacity` needs to be the capacity that the pointer was allocated with.
 	/// * The allocated size in bytes must be no larger than `isize::MAX`.
-	///   See the safety documentation of [`pointer::offset`].
+	///   See the safety documentation of `pointer::offset`.
 	///
 	/// These requirements are always upheld by any `ptr` that has been allocated
 	/// via `UniqueAlignedBuffer`. Other allocation sources are allowed if the invariants are
@@ -351,7 +353,7 @@ where
 	/// that nothing else uses the pointer after calling this
 	/// function.
 	///
-	/// [`alloc::alloc`]: alloc::alloc::alloc
+	/// [`alloc::alloc`]: std::alloc::alloc
 	///
 	/// # Examples
 	///
