@@ -106,7 +106,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # cache-provider: buildjet
 
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
         name: Setup just
 
       - name: Run tests
