@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.9](https://github.com/YoloDev/rstml-component/compare/0.0.8..0.0.9) - 2024-06-24
+
+### 🐛 Bug Fixes
+
+- Impl Default on SharedAlignedBuffer - ([61d0601](https://github.com/YoloDev/rstml-component/commit/61d060105ac244d91a7ba9319da01bc286216dc3))
+
+### 📚 Documentation
+
+- Fix doc links - ([8772602](https://github.com/YoloDev/rstml-component/commit/87726028ae1c23ff8bfbbea3a3a4ec540fe14eba))
+
 ## [0.0.8](https://github.com/YoloDev/rstml-component/compare/0.0.7..0.0.8) - 2024-03-24
 
 ### ✨ Features
