@@ -248,8 +248,12 @@ mod tests {
 		let serialized = serialized.expect("failed to serialize").into_writer();
 
 		// make sure things are not aligned
-		let mut vec = Vec::with_capacity(serialized.len() + 1);
-		vec.push(0);
+		let mut vec = Vec::with_capacity(serialized.len() + 256);
+		while (vec.as_ptr() as usize + vec.len()) % 16 != 0
+			|| (vec.as_ptr() as usize + vec.len()) % 256 == 0
+		{
+			vec.push(0);
+		}
 		vec.extend(serialized.as_slice());
 
 		let archived = rkyv::access::<ArchivedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&vec[1..]);

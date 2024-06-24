@@ -16,6 +16,17 @@ where
 	pub(crate) buf: RawAlignedBuffer<ALIGNMENT, A>,
 }
 
+impl<const ALIGNMENT: usize, A> Default for SharedAlignedBuffer<ALIGNMENT, A>
+where
+	A: BufferAllocator<ALIGNMENT> + Default,
+{
+	#[inline]
+	#[must_use]
+	fn default() -> Self {
+		Self::new_in(A::default())
+	}
+}
+
 impl<const ALIGNMENT: usize> SharedAlignedBuffer<ALIGNMENT> {
 	/// Constructs a new, empty `SharedAlignedBuffer`.
 	///
