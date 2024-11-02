@@ -423,7 +423,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bytecheck"))]
 mod tests {
 	use crate::RetainAllRetentionPolicy;
 

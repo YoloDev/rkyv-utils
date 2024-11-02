@@ -11,14 +11,14 @@ keywords = ["buffer", "rkyv", "bytes"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aligned-buffer = { version = "0.0.9", path = "../aligned-buffer", default-features = false }
-aligned-buffer-pool = { version = "0.0.6", path = "../aligned-buffer-pool", default-features = false, optional = true }
-rkyv = { workspace = true }
+aligned-buffer = { version = "0.0.9", path = "../aligned-buffer", default-features = false, features = ["rkyv"] }
+aligned-buffer-pool = { version = "0.0.6", path = "../aligned-buffer-pool", default-features = false, optional = true, features = ["rkyv"] }
+rkyv = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
-aligned-buffer-pool = { version = "0.0.6", path = "../aligned-buffer-pool", default-features = false }
+aligned-buffer-pool = { version = "0.0.6", path = "../aligned-buffer-pool", default-features = false, features = ["rkyv"] }
 
 [features]
 default = ["bytecheck"]
-bytecheck = ["rkyv/bytecheck"]
+bytecheck = ["rkyv/bytecheck", "aligned-buffer/bytecheck", "aligned-buffer-pool/bytecheck"]
 pool = ["dep:aligned-buffer-pool"]

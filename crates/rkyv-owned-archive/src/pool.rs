@@ -1,15 +1,22 @@
 use crate::OwnedArchive;
-use aligned_buffer::{
-	alloc::{BufferAllocator, Global},
-	SharedAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
-};
-use aligned_buffer_pool::{PooledValidator, SerializerPoolAllocator, ValidatorPool};
+use aligned_buffer::{alloc::Global, DEFAULT_BUFFER_ALIGNMENT};
+use aligned_buffer_pool::SerializerPoolAllocator;
+
+#[cfg(feature = "bytecheck")]
+use aligned_buffer::{alloc::BufferAllocator, SharedAlignedBuffer};
+
+#[cfg(feature = "bytecheck")]
+use aligned_buffer_pool::{PooledValidator, ValidatorPool};
+
+#[cfg(feature = "bytecheck")]
 use rkyv::{
 	api::access_pos_with_context,
 	bytecheck::CheckBytes,
 	rancor::{self, Strategy},
 	Portable,
 };
+
+#[cfg(feature = "bytecheck")]
 use std::mem;
 
 pub type PooledArchive<T, P, const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global> =

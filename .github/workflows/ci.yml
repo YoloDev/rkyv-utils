@@ -70,11 +70,14 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # cache-provider: buildjet
 
-      - name: Lint
-        run: cargo clippy --all -- -D warnings
+      - name: Install cargo-featurex
+        run: cargo install cargo-featurex
 
-      - name: Run tests
-        run: cargo test --workspace --all-features
+      - name: Run check (all feature permutations)
+        run: cargo featurex clippy
+
+      - name: Run tests (all feature permutations)
+        run: cargo featurex test
 
   miri-test:
     name: Miri Test

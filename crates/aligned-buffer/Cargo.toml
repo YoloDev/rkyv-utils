@@ -14,13 +14,14 @@ keywords = ["buffer", "rkyv", "bytes"]
 bytes = { workspace = true, features = ["std"], optional = true }
 const_panic = { workspace = true }
 crossbeam-utils = { workspace = true }
-rkyv = { workspace = true, features = ["std", "bytecheck"], optional = true }
+rkyv = { workspace = true, features = ["std"], optional = true }
 stable_deref_trait = { workspace = true, optional = true }
 static_assertions = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
-default = ["stable-deref-trait"]
+default = ["stable-deref-trait", "bytecheck"]
 stable-deref-trait = ["dep:stable_deref_trait"]
 bytes = ["dep:bytes"]
 rkyv = ["dep:rkyv"]
+bytecheck = ["rkyv?/bytecheck"]

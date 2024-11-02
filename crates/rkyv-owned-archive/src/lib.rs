@@ -5,15 +5,17 @@ use aligned_buffer::{
 	alloc::{BufferAllocator, Global},
 	SharedAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
 };
+use rkyv::Portable;
+use std::{fmt, marker::PhantomData, mem, ops};
+
+#[cfg(feature = "bytecheck")]
 use rkyv::{
 	api::{access_pos_with_context, high::HighValidator},
 	bytecheck::CheckBytes,
 	ptr_meta::Pointee,
 	rancor::{self, Strategy},
 	validation::{archive::ArchiveValidator, shared::SharedValidator, ArchiveContext, Validator},
-	Portable,
 };
-use std::{fmt, marker::PhantomData, mem, ops};
 
 #[cfg(feature = "pool")]
 pub use pool::PooledArchive;
@@ -246,7 +248,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bytecheck"))]
 mod tests {
 	use super::*;
 	use aligned_buffer_pool::{RetainAllRetentionPolicy, SerializerPool};

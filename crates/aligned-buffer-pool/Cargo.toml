@@ -11,7 +11,12 @@ keywords = ["buffer", "rkyv", "bytes"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aligned-buffer = { version = "0.0.9", path = "../aligned-buffer", default-features = false, features = ["rkyv"] }
+aligned-buffer = { version = "0.0.9", path = "../aligned-buffer", default-features = false }
 crossbeam-queue = { workspace = true }
 fxhash = { workspace = true }
-rkyv = { workspace = true, features = ["std", "bytecheck"] }
+rkyv = { workspace = true, features = ["std"], optional = true }
+
+[features]
+default = ["bytecheck"]
+rkyv = ["dep:rkyv", "aligned-buffer/rkyv"]
+bytecheck = ["rkyv?/bytecheck", "aligned-buffer/bytecheck"]

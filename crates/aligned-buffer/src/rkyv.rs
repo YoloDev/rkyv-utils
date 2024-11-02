@@ -4,14 +4,15 @@ use crate::{
 };
 use rkyv::{
 	boxed::{ArchivedBox, BoxResolver},
-	bytecheck::CheckBytes,
 	primitive::{ArchivedUsize, FixedUsize},
 	rancor::Fallible,
 	ser::{Positional, Writer, WriterExt},
-	validation::ArchiveContext,
 	Archive, Deserialize, Place, Portable, Serialize,
 };
 use std::{convert::Infallible, ops};
+
+#[cfg(feature = "bytecheck")]
+use rkyv::{bytecheck::CheckBytes, validation::ArchiveContext};
 
 #[derive(Debug, thiserror::Error)]
 #[error("misaligned buffer")]
@@ -48,6 +49,7 @@ impl<const ALIGNMENT: usize> AsRef<[u8]> for ArchivedAlignedBuffer<ALIGNMENT> {
 // SAFETY: ArchivedAlignedBuffer<ALIGNMENT> is repr(transparent) over a ArchivedBox<[u8]>.
 unsafe impl<const ALIGNMENT: usize> Portable for ArchivedAlignedBuffer<ALIGNMENT> {}
 
+#[cfg(feature = "bytecheck")]
 unsafe impl<C: Fallible + ?Sized, const ALIGNMENT: usize> CheckBytes<C>
 	for ArchivedAlignedBuffer<ALIGNMENT>
 where
@@ -185,7 +187,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bytecheck"))]
 mod tests {
 	use super::*;
 	use rkyv::{
