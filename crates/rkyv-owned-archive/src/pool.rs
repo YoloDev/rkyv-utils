@@ -5,6 +5,7 @@ use aligned_buffer::{
 };
 use aligned_buffer_pool::{PooledValidator, SerializerPoolAllocator, ValidatorPool};
 use rkyv::{
+	api::access_pos_with_context,
 	bytecheck::CheckBytes,
 	rancor::{self, Strategy},
 	Portable,
@@ -24,8 +25,8 @@ where
 		validator_pool: &ValidatorPool,
 	) -> Result<Self, E>
 	where
-		E: rancor::Error,
-		T: CheckBytes<Strategy<PooledValidator, E>>,
+		E: rancor::Source,
+		T: for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
 	{
 		let pos = buffer.len().saturating_sub(mem::size_of::<T>());
 		Self::new_with_pos_and_pooled_validator(buffer, pos, validator_pool)
@@ -37,10 +38,16 @@ where
 		validator_pool: &ValidatorPool,
 	) -> Result<Self, E>
 	where
-		E: rancor::Error,
-		T: CheckBytes<Strategy<PooledValidator, E>>,
+		E: rancor::Source,
+		T: for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
 	{
-		let mut validator = validator_pool.validator(&buffer);
-		Self::new_with_pos_and_context(buffer, pos, &mut validator)
+		{
+			let mut validator = validator_pool.validator(&buffer);
+			access_pos_with_context::<T, _, E>(&buffer, pos, &mut validator)?;
+		}
+
+		// SAFETY: We just checked that the buffer is valid
+		let result = unsafe { Self::new_unchecked_with_pos(buffer, pos) };
+		Ok(result)
 	}
 }

@@ -15,7 +15,6 @@ aligned-buffer = { version = "0.0.9", path = "../aligned-buffer", default-featur
 aligned-buffer-pool = { version = "0.0.6", path = "../aligned-buffer-pool", default-features = false, optional = true }
 rkyv = { workspace = true }
 
-
 [dev-dependencies]
 aligned-buffer-pool = { version = "0.0.6", path = "../aligned-buffer-pool", default-features = false }
 

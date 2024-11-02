@@ -2,7 +2,7 @@ mod shared;
 
 use self::shared::SharedValidator;
 use crossbeam_queue::ArrayQueue;
-use rkyv::validation::{validators::ArchiveValidator, ArchiveContext, SharedContext};
+use rkyv::validation::{archive::ArchiveValidator, ArchiveContext, SharedContext};
 use std::{
 	any::TypeId,
 	mem,
@@ -30,15 +30,15 @@ impl ValidatorPool {
 		}
 	}
 
-	pub fn validator(&self, bytes: &[u8]) -> PooledValidator {
+	pub fn validator<'a>(&self, bytes: &'a [u8]) -> PooledValidator<'a> {
 		self.validator_with_max_depth(bytes, None)
 	}
 
-	pub fn validator_with_max_depth(
+	pub fn validator_with_max_depth<'a>(
 		&self,
-		bytes: &[u8],
+		bytes: &'a [u8],
 		max_depth: Option<NonZeroUsize>,
-	) -> PooledValidator {
+	) -> PooledValidator<'a> {
 		let shared = self.inner.shared.pop().unwrap_or_default();
 
 		PooledValidator {
@@ -50,13 +50,13 @@ impl ValidatorPool {
 }
 
 #[derive(Debug)]
-pub struct PooledValidator {
+pub struct PooledValidator<'a> {
 	pool_ref: Weak<Inner>,
-	archive: ArchiveValidator,
+	archive: ArchiveValidator<'a>,
 	shared: SharedValidator,
 }
 
-impl Drop for PooledValidator {
+impl<'a> Drop for PooledValidator<'a> {
 	fn drop(&mut self) {
 		if let Some(pool) = self.pool_ref.upgrade() {
 			self.shared.clear();
@@ -65,45 +65,45 @@ impl Drop for PooledValidator {
 	}
 }
 
-unsafe impl<E> ArchiveContext<E> for PooledValidator
+unsafe impl<'a, E> ArchiveContext<E> for PooledValidator<'a>
 where
-	ArchiveValidator: ArchiveContext<E>,
+	ArchiveValidator<'a>: ArchiveContext<E>,
 {
 	#[inline]
-	fn check_subtree_ptr(&mut self, ptr: *const u8, layout: &core::alloc::Layout) -> Result<(), E> {
+	fn check_subtree_ptr(&mut self, ptr: *const u8, layout: &std::alloc::Layout) -> Result<(), E> {
 		self.archive.check_subtree_ptr(ptr, layout)
 	}
 
 	#[inline]
-	unsafe fn push_prefix_subtree_range(
+	unsafe fn push_subtree_range(
 		&mut self,
 		root: *const u8,
 		end: *const u8,
 	) -> Result<Range<usize>, E> {
-		self.archive.push_prefix_subtree_range(root, end)
-	}
-
-	#[inline]
-	unsafe fn push_suffix_subtree_range(
-		&mut self,
-		start: *const u8,
-		root: *const u8,
-	) -> Result<Range<usize>, E> {
-		self.archive.push_suffix_subtree_range(start, root)
+		self.archive.push_subtree_range(root, end)
 	}
 
 	#[inline]
 	unsafe fn pop_subtree_range(&mut self, range: Range<usize>) -> Result<(), E> {
-		unsafe { self.archive.pop_subtree_range(range) }
+		self.archive.pop_subtree_range(range)
 	}
 }
 
-impl<E> SharedContext<E> for PooledValidator
+impl<'a, E> SharedContext<E> for PooledValidator<'a>
 where
 	SharedValidator: SharedContext<E>,
 {
 	#[inline]
-	fn register_shared_ptr(&mut self, address: usize, type_id: TypeId) -> Result<bool, E> {
-		self.shared.register_shared_ptr(address, type_id)
+	fn start_shared(
+		&mut self,
+		address: usize,
+		type_id: TypeId,
+	) -> Result<rkyv::validation::shared::ValidationState, E> {
+		self.shared.start_shared(address, type_id)
+	}
+
+	#[inline]
+	fn finish_shared(&mut self, address: usize, type_id: TypeId) -> Result<(), E> {
+		self.shared.finish_shared(address, type_id)
 	}
 }

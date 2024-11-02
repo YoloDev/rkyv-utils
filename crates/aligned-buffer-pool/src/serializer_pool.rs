@@ -8,10 +8,12 @@ use aligned_buffer::{
 };
 use crossbeam_queue::ArrayQueue;
 use fxhash::FxHashMap;
+use rkyv::ser::sharing::SharingState;
 use std::{
 	alloc,
-	collections::hash_map,
-	fmt, mem,
+	collections::hash_map::Entry,
+	fmt,
+	num::NonZeroUsize,
 	ptr::{self, NonNull},
 	sync::{Arc, Weak},
 };
@@ -30,14 +32,14 @@ where
 	A: Allocator + Clone,
 {
 	owner: Weak<Inner<P, ALIGNMENT, A>>,
-	map: FxHashMap<usize, usize>,
+	map: FxHashMap<usize, Option<NonZeroUsize>>,
 }
 
 impl<P: BufferRetentionPolicy, const ALIGNMENT: usize, A> RentedUnify<P, ALIGNMENT, A>
 where
 	A: Allocator + Clone,
 {
-	fn new(owner: &Arc<Inner<P, ALIGNMENT, A>>, map: FxHashMap<usize, usize>) -> Self {
+	fn new(owner: &Arc<Inner<P, ALIGNMENT, A>>, map: FxHashMap<usize, Option<NonZeroUsize>>) -> Self {
 		Self {
 			owner: Arc::downgrade(owner),
 			map,
@@ -62,7 +64,7 @@ where
 {
 	writers: AlignedBufferPoolInner<P, ALIGNMENT, SerializerWeakRef<P, ALIGNMENT, A>, A>,
 	scratch: AlignedBufferPoolInner<P, ALIGNMENT, SerializerScratchRef<P, ALIGNMENT, A>, A>,
-	unify: ArrayQueue<FxHashMap<usize, usize>>,
+	unify: ArrayQueue<FxHashMap<usize, Option<NonZeroUsize>>>,
 }
 
 pub struct SerializerPool<
@@ -172,8 +174,8 @@ where
 	pub fn serialize<T: rkyv::Serialize<rkyv::rancor::Strategy<Self, rkyv::rancor::BoxedError>>>(
 		&mut self,
 		value: &T,
-	) -> Result<(), rkyv::rancor::BoxedError> {
-		rkyv::util::serialize(value, self)
+	) -> Result<usize, rkyv::rancor::BoxedError> {
+		rkyv::api::serialize_using(value, self)
 	}
 }
 
@@ -188,30 +190,67 @@ where
 	}
 }
 
-impl<E: rkyv::rancor::Error, P: BufferRetentionPolicy, const ALIGNMENT: usize, A>
+#[derive(Debug)]
+struct NotStarted;
+
+impl fmt::Display for NotStarted {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "shared pointer was not started sharing")
+	}
+}
+
+impl std::error::Error for NotStarted {}
+
+#[derive(Debug)]
+struct AlreadyFinished;
+
+impl fmt::Display for AlreadyFinished {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "shared pointer was already finished sharing")
+	}
+}
+
+impl std::error::Error for AlreadyFinished {}
+
+impl<E: rkyv::rancor::Source, P: BufferRetentionPolicy, const ALIGNMENT: usize, A>
 	rkyv::ser::sharing::Sharing<E> for Serializer<P, ALIGNMENT, A>
 where
 	A: Allocator + Clone,
 {
-	#[inline]
-	fn get_shared_ptr(&self, address: usize) -> Option<usize> {
-		self.unify.map.get(&address).copied()
+	fn start_sharing(&mut self, address: usize) -> SharingState {
+		match self.unify.map.entry(address) {
+			Entry::Vacant(vacant) => {
+				vacant.insert(None);
+				SharingState::Started
+			}
+			Entry::Occupied(occupied) => {
+				if let Some(pos) = occupied.get() {
+					SharingState::Finished(pos.get() ^ usize::MAX)
+				} else {
+					SharingState::Pending
+				}
+			}
+		}
 	}
 
-	fn add_shared_ptr(&mut self, address: usize, pos: usize) -> Result<(), E> {
+	fn finish_sharing(&mut self, address: usize, pos: usize) -> Result<(), E> {
 		match self.unify.map.entry(address) {
-			hash_map::Entry::Occupied(_) => {
-				rkyv::rancor::fail!(DuplicateSharedPointer { address });
-			}
-			hash_map::Entry::Vacant(e) => {
-				e.insert(pos);
-				Ok(())
+			Entry::Vacant(_) => rkyv::rancor::fail!(NotStarted),
+			Entry::Occupied(mut occupied) => {
+				let inner = occupied.get_mut();
+				if inner.is_some() {
+					rkyv::rancor::fail!(AlreadyFinished);
+				} else {
+					*inner = Some(NonZeroUsize::new(pos ^ usize::MAX).unwrap());
+					Ok(())
+				}
 			}
 		}
 	}
 }
 
-impl<E: rkyv::rancor::Error, P: BufferRetentionPolicy, const ALIGNMENT: usize, A>
+// SAFETY: `push_alloc` must return a pointer to unaliased memory which fits the provided layout.
+unsafe impl<E: rkyv::rancor::Source, P: BufferRetentionPolicy, const ALIGNMENT: usize, A>
 	rkyv::ser::Allocator<E> for Serializer<P, ALIGNMENT, A>
 where
 	A: Allocator + Clone,
@@ -276,34 +315,16 @@ where
 	}
 }
 
-impl<E: rkyv::rancor::Error, P: BufferRetentionPolicy, const ALIGNMENT: usize, A>
+impl<E: rkyv::rancor::Source, P: BufferRetentionPolicy, const ALIGNMENT: usize, A>
 	rkyv::ser::Writer<E> for Serializer<P, ALIGNMENT, A>
 where
 	A: Allocator + Clone,
 {
 	#[inline(always)]
 	fn write(&mut self, bytes: &[u8]) -> Result<(), E> {
-		rkyv::ser::Writer::write(&mut self.writer, bytes).map_err(E::new)
+		rkyv::ser::Writer::<E>::write(&mut self.writer, bytes).map_err(E::new)
 	}
 }
-
-#[derive(Debug)]
-struct DuplicateSharedPointer {
-	address: usize,
-}
-
-impl fmt::Display for DuplicateSharedPointer {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(
-			f,
-			"duplicate shared pointer: {:#.*x}",
-			mem::size_of::<usize>() * 2,
-			self.address
-		)
-	}
-}
-
-impl std::error::Error for DuplicateSharedPointer {}
 
 #[derive(Debug)]
 enum BufferAllocError {
@@ -410,7 +431,6 @@ mod tests {
 	use rkyv::{Archive, Deserialize, Serialize};
 
 	#[derive(Archive, Serialize, Deserialize)]
-	#[archive(check_bytes)]
 	struct TestStruct1 {
 		name: String,
 		boxed_name: Box<str>,

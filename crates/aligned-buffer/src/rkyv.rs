@@ -9,7 +9,7 @@ use rkyv::{
 	rancor::Fallible,
 	ser::{Positional, Writer, WriterExt},
 	validation::ArchiveContext,
-	Archive, Deserialize, Portable, Serialize,
+	Archive, Deserialize, Place, Portable, Serialize,
 };
 use std::{convert::Infallible, ops};
 
@@ -52,7 +52,7 @@ unsafe impl<C: Fallible + ?Sized, const ALIGNMENT: usize> CheckBytes<C>
 	for ArchivedAlignedBuffer<ALIGNMENT>
 where
 	C: ArchiveContext,
-	<C as Fallible>::Error: rkyv::rancor::Error,
+	<C as Fallible>::Error: rkyv::rancor::Source,
 {
 	unsafe fn check_bytes(value: *const Self, context: &mut C) -> Result<(), <C as Fallible>::Error> {
 		let value = value as *const ArchivedBox<[u8]>;
@@ -69,7 +69,7 @@ where
 
 		// check alignment
 		if (ptr as usize) % ALIGNMENT != 0 {
-			return Err(rkyv::rancor::Error::new(Misaligned));
+			return Err(rkyv::rancor::Source::new(Misaligned));
 		}
 
 		Ok(())
@@ -83,10 +83,11 @@ where
 	type Archived = ArchivedAlignedBuffer<ALIGNMENT>;
 	type Resolver = BoxResolver;
 
-	unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+	fn resolve(&self, resolver: Self::Resolver, out: Place<Self::Archived>) {
 		let len = FixedUsize::try_from(self.len()).expect("buffer too large to archive");
 		let len = ArchivedUsize::from(len);
-		ArchivedBox::resolve_from_raw_parts(pos, resolver, len, out as *mut ArchivedBox<[u8]>)
+		// SAFETY: ArchivedAlignedBuffer<ALIGNMENT> is repr(transparent) over a ArchivedBox<[u8]>.
+		ArchivedBox::<[u8]>::resolve_from_raw_parts(resolver, len, unsafe { out.cast_unchecked() });
 	}
 }
 
@@ -97,10 +98,11 @@ where
 	type Archived = ArchivedAlignedBuffer<ALIGNMENT>;
 	type Resolver = BoxResolver;
 
-	unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+	fn resolve(&self, resolver: Self::Resolver, out: Place<Self::Archived>) {
 		let len = FixedUsize::try_from(self.len()).expect("buffer too large to archive");
 		let len = ArchivedUsize::from(len);
-		ArchivedBox::resolve_from_raw_parts(pos, resolver, len, out as *mut ArchivedBox<[u8]>)
+		// SAFETY: ArchivedAlignedBuffer<ALIGNMENT> is repr(transparent) over a ArchivedBox<[u8]>.
+		ArchivedBox::<[u8]>::resolve_from_raw_parts(resolver, len, unsafe { out.cast_unchecked() });
 	}
 }
 
@@ -111,7 +113,9 @@ where
 {
 	fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
 		serializer.align(ALIGNMENT)?;
-		unsafe { ArchivedBox::serialize_copy_from_slice(self.as_slice(), serializer) }
+		let pos = serializer.pos();
+		serializer.write(self.as_slice())?;
+		Ok(BoxResolver::from_pos(pos))
 	}
 }
 
@@ -122,7 +126,9 @@ where
 {
 	fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
 		serializer.align(ALIGNMENT)?;
-		unsafe { ArchivedBox::serialize_copy_from_slice(self.as_slice(), serializer) }
+		let pos = serializer.pos();
+		serializer.write(self.as_slice())?;
+		Ok(BoxResolver::from_pos(pos))
 	}
 }
 
@@ -168,12 +174,12 @@ where
 	}
 }
 
-impl<const ALIGNMENT: usize, A> Writer for UniqueAlignedBuffer<ALIGNMENT, A>
+impl<E, const ALIGNMENT: usize, A> Writer<E> for UniqueAlignedBuffer<ALIGNMENT, A>
 where
 	A: BufferAllocator<ALIGNMENT>,
 {
 	#[inline]
-	fn write(&mut self, bytes: &[u8]) -> Result<(), <Self as Fallible>::Error> {
+	fn write(&mut self, bytes: &[u8]) -> Result<(), E> {
 		self.extend_from_slice(bytes);
 		Ok(())
 	}
@@ -182,14 +188,18 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rkyv::ser::{
-		allocator::{BackupAllocator, BumpAllocator, GlobalAllocator},
-		sharing::Unify,
-		AllocSerializer, Composite,
+	use rkyv::{
+		rancor::Error,
+		ser::{
+			allocator::{Arena, ArenaHandle},
+			sharing::Share,
+			Serializer,
+		},
+		util::with_arena,
 	};
 
 	#[derive(Archive, Serialize, Deserialize)]
-	#[archive(check_bytes)]
+	// #[rkyv(check_bytes)]
 	struct TestStruct1 {
 		name: String,
 		boxed_name: Box<str>,
@@ -208,31 +218,30 @@ mod tests {
 
 	fn serializer<const ALIGNMENT: usize>(
 		buffer: UniqueAlignedBuffer<ALIGNMENT>,
-	) -> Composite<
-		UniqueAlignedBuffer<ALIGNMENT>,
-		BackupAllocator<BumpAllocator<1024>, GlobalAllocator>,
-		Unify,
-	> {
-		Composite::new(buffer, Default::default(), Default::default())
+		arena: &mut Arena,
+	) -> Serializer<UniqueAlignedBuffer<ALIGNMENT>, ArenaHandle, Share> {
+		Serializer::new(buffer, arena.acquire(), Share::new())
 	}
 
 	#[test]
 	fn aligned_buffer_writer() {
-		let buffer = UniqueAlignedBuffer::<64>::with_capacity(1024);
-		let original = TestStruct1::new("John Doe", 42);
+		with_arena(|arena| {
+			let buffer = UniqueAlignedBuffer::<64>::with_capacity(1024);
+			let original = TestStruct1::new("John Doe", 42);
 
-		let serializer = serializer(buffer);
-		let buffer = rkyv::util::serialize_into(&original, serializer)
-			.expect("failed to serialize")
-			.into_writer()
-			.into_shared();
+			let mut serializer = serializer(buffer, arena);
+			rkyv::api::serialize_using::<_, Error>(&original, &mut serializer)
+				.expect("failed to serialize");
 
-		let archived = rkyv::access::<ArchivedTestStruct1, rkyv::rancor::BoxedError>(&buffer)
-			.expect("failed byte-check");
+			let buffer = serializer.into_writer().into_shared();
 
-		assert_eq!(archived.name, original.name);
-		assert_eq!(archived.boxed_name, original.boxed_name);
-		assert_eq!(archived.age, original.age);
+			let archived = rkyv::access::<ArchivedTestStruct1, rkyv::rancor::BoxedError>(&buffer)
+				.expect("failed byte-check");
+
+			assert_eq!(archived.name, original.name);
+			assert_eq!(archived.boxed_name, original.boxed_name);
+			assert_eq!(archived.age, original.age);
+		})
 	}
 
 	#[test]
@@ -243,9 +252,8 @@ mod tests {
 		}
 
 		let original = buffer.into_shared();
-		let serialized: Result<_, rkyv::rancor::BoxedError> =
-			rkyv::util::serialize_into(&original, AllocSerializer::<1024>::default());
-		let serialized = serialized.expect("failed to serialize").into_writer();
+		let serialized: Result<_, rkyv::rancor::BoxedError> = rkyv::to_bytes(&original);
+		let serialized = serialized.expect("failed to serialize");
 
 		// make sure things are not aligned
 		let mut vec = Vec::with_capacity(serialized.len() + 256);
@@ -263,24 +271,26 @@ mod tests {
 
 	#[test]
 	fn round_trip_aligned_buffer() {
-		let mut buffer = UniqueAlignedBuffer::<256>::with_capacity(100);
-		for i in 0..100 {
-			buffer.push(i);
-		}
+		with_arena(|arena| {
+			let mut buffer = UniqueAlignedBuffer::<256>::with_capacity(100);
+			for i in 0..100 {
+				buffer.push(i);
+			}
 
-		let original = buffer.into_shared();
+			let original = buffer.into_shared();
 
-		let serializer = serializer(UniqueAlignedBuffer::<256>::with_capacity(1024));
-		let buffer = rkyv::util::serialize_into(&original, serializer)
-			.expect("failed to serialize")
-			.into_writer()
-			.into_shared();
+			let mut serializer = serializer(UniqueAlignedBuffer::<256>::with_capacity(1024), arena);
+			rkyv::api::serialize_using::<_, Error>(&original, &mut serializer)
+				.expect("failed to serialize");
 
-		let archived = rkyv::access::<ArchivedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&buffer)
-			.expect("failed byte-check");
+			let buffer = serializer.into_writer().into_shared();
 
-		let archived = archived.as_slice();
-		let original = original.as_slice();
-		assert_eq!(archived, original);
+			let archived = rkyv::access::<ArchivedAlignedBuffer<256>, rkyv::rancor::BoxedError>(&buffer)
+				.expect("failed byte-check");
+
+			let archived = archived.as_slice();
+			let original = original.as_slice();
+			assert_eq!(archived, original);
+		})
 	}
 }

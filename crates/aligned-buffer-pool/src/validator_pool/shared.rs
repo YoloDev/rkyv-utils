@@ -1,46 +1,54 @@
 use fxhash::FxHashMap;
 use rkyv::{
-	rancor::{fail, Error},
-	validation::SharedContext,
+	rancor::{fail, Source},
+	validation::{shared::ValidationState, SharedContext},
 };
-use std::{any::TypeId, collections::hash_map::Entry, fmt};
+use std::{any::TypeId, collections::hash_map::Entry, error::Error, fmt};
 
-/// Errors that can occur when checking shared memory.
 #[derive(Debug)]
-pub enum SharedError {
-	/// Multiple pointers exist to the same location with different types
-	TypeMismatch {
-		/// A previous type that the location was checked as
-		previous: TypeId,
-		/// The current type that the location is checked as
-		current: TypeId,
-	},
+struct TypeMismatch {
+	previous: TypeId,
+	current: TypeId,
 }
 
-impl fmt::Display for SharedError {
-	#[inline]
+impl fmt::Display for TypeMismatch {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			SharedError::TypeMismatch { previous, current } => write!(
-				f,
-				"the same memory region has been claimed as two different types ({:?} and {:?})",
-				previous, current
-			),
-		}
+		write!(
+			f,
+			"the same memory region has been claimed as two different types: \
+             {:?} and {:?}",
+			self.previous, self.current,
+		)
 	}
 }
 
-impl std::error::Error for SharedError {
-	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-		match self {
-			SharedError::TypeMismatch { .. } => None,
-		}
+impl Error for TypeMismatch {}
+
+#[derive(Debug)]
+struct NotStarted;
+
+impl fmt::Display for NotStarted {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "shared pointer was not started validation")
 	}
 }
+
+impl Error for NotStarted {}
+
+#[derive(Debug)]
+struct AlreadyFinished;
+
+impl fmt::Display for AlreadyFinished {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "shared pointer was already finished validation")
+	}
+}
+
+impl Error for AlreadyFinished {}
 
 #[derive(Debug, Default)]
 pub(super) struct SharedValidator {
-	shared: FxHashMap<usize, TypeId>,
+	shared: FxHashMap<usize, (TypeId, bool)>,
 }
 
 impl SharedValidator {
@@ -49,25 +57,45 @@ impl SharedValidator {
 	}
 }
 
-impl<E: Error> SharedContext<E> for SharedValidator {
-	#[inline]
-	fn register_shared_ptr(&mut self, address: usize, type_id: TypeId) -> Result<bool, E> {
+impl<E: Source> SharedContext<E> for SharedValidator {
+	fn start_shared(&mut self, address: usize, type_id: TypeId) -> Result<ValidationState, E> {
 		match self.shared.entry(address) {
-			Entry::Occupied(previous_type_entry) => {
-				let previous_type_id = previous_type_entry.get();
+			Entry::Vacant(vacant) => {
+				vacant.insert((type_id, false));
+				Ok(ValidationState::Started)
+			}
+			Entry::Occupied(occupied) => {
+				let (previous_type_id, finished) = occupied.get();
 				if previous_type_id != &type_id {
-					fail!(SharedError::TypeMismatch {
+					fail!(TypeMismatch {
 						previous: *previous_type_id,
 						current: type_id,
 					})
+				} else if !finished {
+					Ok(ValidationState::Pending)
 				} else {
-					Ok(false)
+					Ok(ValidationState::Finished)
 				}
 			}
+		}
+	}
 
-			Entry::Vacant(ent) => {
-				ent.insert(type_id);
-				Ok(true)
+	fn finish_shared(&mut self, address: usize, type_id: TypeId) -> Result<(), E> {
+		match self.shared.entry(address) {
+			Entry::Vacant(_) => fail!(NotStarted),
+			Entry::Occupied(mut occupied) => {
+				let (previous_type_id, finished) = occupied.get_mut();
+				if previous_type_id != &type_id {
+					fail!(TypeMismatch {
+						previous: *previous_type_id,
+						current: type_id,
+					});
+				} else if *finished {
+					fail!(AlreadyFinished);
+				} else {
+					*finished = true;
+					Ok(())
+				}
 			}
 		}
 	}

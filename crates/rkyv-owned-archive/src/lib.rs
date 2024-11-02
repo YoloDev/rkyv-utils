@@ -6,10 +6,11 @@ use aligned_buffer::{
 	SharedAlignedBuffer, DEFAULT_BUFFER_ALIGNMENT,
 };
 use rkyv::{
+	api::{access_pos_with_context, high::HighValidator},
 	bytecheck::CheckBytes,
 	ptr_meta::Pointee,
 	rancor::{self, Strategy},
-	validation::{util::access_pos_with_context, validators::DefaultValidator, ArchiveContext},
+	validation::{archive::ArchiveValidator, shared::SharedValidator, ArchiveContext, Validator},
 	Portable,
 };
 use std::{fmt, marker::PhantomData, mem, ops};
@@ -62,8 +63,8 @@ where
 {
 	pub fn new<E>(buffer: SharedAlignedBuffer<ALIGNMENT, A>) -> Result<Self, E>
 	where
-		E: rancor::Error,
-		T: CheckBytes<Strategy<DefaultValidator, E>>,
+		E: rancor::Source,
+		T: for<'a> CheckBytes<HighValidator<'a, E>>,
 	{
 		let pos = buffer.len().saturating_sub(mem::size_of::<T>());
 		Self::new_with_pos(buffer, pos)
@@ -71,11 +72,18 @@ where
 
 	pub fn new_with_pos<E>(buffer: SharedAlignedBuffer<ALIGNMENT, A>, pos: usize) -> Result<Self, E>
 	where
-		E: rancor::Error,
-		T: CheckBytes<Strategy<DefaultValidator, E>>,
+		E: rancor::Source,
+		T: for<'a> CheckBytes<HighValidator<'a, E>>,
 	{
-		let mut validator = DefaultValidator::new(&buffer);
-		Self::new_with_pos_and_context(buffer, pos, &mut validator)
+		let mut validator = Validator::new(ArchiveValidator::new(&buffer), SharedValidator::new());
+		match access_pos_with_context::<T, _, E>(&buffer, pos, &mut validator) {
+			Err(e) => Err(e),
+			Ok(_) => Ok(Self {
+				buffer,
+				pos,
+				_phantom: PhantomData,
+			}),
+		}
 	}
 
 	pub fn new_with_context<C, E>(
@@ -85,7 +93,7 @@ where
 	where
 		T: CheckBytes<Strategy<C, E>> + Pointee<Metadata = ()>,
 		C: ArchiveContext<E> + ?Sized,
-		E: rancor::Error,
+		E: rancor::Source,
 	{
 		let pos = buffer.len().saturating_sub(mem::size_of::<T>());
 		Self::new_with_pos_and_context(buffer, pos, context)
@@ -99,7 +107,7 @@ where
 	where
 		T: CheckBytes<Strategy<C, E>> + Pointee<Metadata = ()>,
 		C: ArchiveContext<E> + ?Sized,
-		E: rancor::Error,
+		E: rancor::Source,
 	{
 		match access_pos_with_context::<T, C, E>(&buffer, pos, context) {
 			Err(e) => Err(e),
@@ -204,7 +212,7 @@ where
 	fn deref(&self) -> &Self::Target {
 		// SAFETY: `buffer` is required to contain a representation of T::Archived at `pos`.
 		// This is checked by the safe constructors, and required by the unsafe constructors.
-		unsafe { rkyv::util::access_pos_unchecked::<T>(&self.buffer, self.pos) }
+		unsafe { rkyv::api::access_pos_unchecked::<T>(&self.buffer, self.pos) }
 	}
 }
 
@@ -245,7 +253,6 @@ mod tests {
 	use rkyv::{Archive, Deserialize, Serialize};
 
 	#[derive(Archive, Serialize, Deserialize)]
-	#[archive(check_bytes)]
 	struct TestStruct1 {
 		name: String,
 		boxed_name: Box<str>,
