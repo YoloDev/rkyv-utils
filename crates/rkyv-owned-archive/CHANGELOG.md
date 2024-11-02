@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.9](https://github.com/YoloDev/rstml-component/compare/0.0.8..0.0.9) - 2024-11-02
+
+### ✨ Features
+
+- Better cargo features - ([6634964](https://github.com/YoloDev/rstml-component/commit/6634964fa06e64af8011ce4c72c8d3e929b7a8a0))
+- Rkyv 0.8 - ([026b6da](https://github.com/YoloDev/rstml-component/commit/026b6da2b34a666c8ee9e07d360af5632a37c3fa))
+
 ## [0.0.8](https://github.com/YoloDev/rstml-component/compare/0.0.7..0.0.8) - 2024-06-24
 
 ### 🔨 Chore
