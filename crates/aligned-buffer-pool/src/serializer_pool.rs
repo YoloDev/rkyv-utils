@@ -1,6 +1,6 @@
 use crate::{
 	buffer_pool::{AlignedBufferPoolInner, BufferPoolAllocator, WeakAlignedBufferPoolRef},
-	BufferRetentionPolicy,
+	BufferRetentionPolicy, RetainAllRetentionPolicy,
 };
 use aligned_buffer::{
 	alloc::{Allocator, Global},
@@ -18,11 +18,14 @@ use std::{
 	sync::{Arc, Weak},
 };
 
-pub type SerializerAlignedBuffer<P, const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global> =
-	SharedAlignedBuffer<
-		ALIGNMENT,
-		BufferPoolAllocator<P, ALIGNMENT, SerializerWeakRef<P, ALIGNMENT, A>, A>,
-	>;
+pub type SerializerAlignedBuffer<
+	P = RetainAllRetentionPolicy,
+	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
+	A = Global,
+> = SharedAlignedBuffer<
+	ALIGNMENT,
+	BufferPoolAllocator<P, ALIGNMENT, SerializerWeakRef<P, ALIGNMENT, A>, A>,
+>;
 
 pub type SerializerPoolAllocator<P, const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT, A = Global> =
 	BufferPoolAllocator<P, ALIGNMENT, SerializerWeakRef<P, ALIGNMENT, A>, A>;
@@ -68,7 +71,7 @@ where
 }
 
 pub struct SerializerPool<
-	P: BufferRetentionPolicy,
+	P: BufferRetentionPolicy = RetainAllRetentionPolicy,
 	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
 	A = Global,
 > where
@@ -77,9 +80,32 @@ pub struct SerializerPool<
 	inner: Arc<Inner<P, ALIGNMENT, A>>,
 }
 
-impl<P: BufferRetentionPolicy, const ALIGNMENT: usize> SerializerPool<P, ALIGNMENT> {
-	pub fn new(policy: P, capacity: usize) -> Self {
+impl<P: BufferRetentionPolicy, const ALIGNMENT: usize> SerializerPool<P, ALIGNMENT, Global>
+where
+	P: Default,
+{
+	pub fn new(capacity: usize) -> Self {
+		Self::with_policy(P::default(), capacity)
+	}
+
+	pub fn with_capacity(capacity: usize) -> Self {
+		Self::with_capacity_in(capacity, Global)
+	}
+}
+
+impl<P: BufferRetentionPolicy, const ALIGNMENT: usize> SerializerPool<P, ALIGNMENT, Global> {
+	pub fn with_policy(policy: P, capacity: usize) -> Self {
 		Self::new_in(policy, capacity, Global)
+	}
+}
+
+impl<P: BufferRetentionPolicy, const ALIGNMENT: usize, A: Allocator + Clone>
+	SerializerPool<P, ALIGNMENT, A>
+where
+	P: Default,
+{
+	pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
+		Self::new_in(P::default(), capacity, alloc)
 	}
 }
 
@@ -136,17 +162,8 @@ where
 	}
 }
 
-impl<P: BufferRetentionPolicy, const ALIGNMENT: usize> SerializerPool<P, ALIGNMENT>
-where
-	P: Default,
-{
-	pub fn with_capacity(capacity: usize) -> Self {
-		Self::new(P::default(), capacity)
-	}
-}
-
 pub struct Serializer<
-	P: BufferRetentionPolicy,
+	P: BufferRetentionPolicy = RetainAllRetentionPolicy,
 	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
 	A = Global,
 > where

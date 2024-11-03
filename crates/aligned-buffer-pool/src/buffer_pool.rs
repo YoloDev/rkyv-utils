@@ -11,7 +11,7 @@ use std::{
 };
 
 pub type UniquePooledAlignedBuffer<
-	P,
+	P = RetainAllRetentionPolicy,
 	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
 	A = Global,
 > = UniqueAlignedBuffer<
@@ -20,7 +20,7 @@ pub type UniquePooledAlignedBuffer<
 >;
 
 pub type SharedPooledAlignedBuffer<
-	P,
+	P = RetainAllRetentionPolicy,
 	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
 	A = Global,
 > = SharedAlignedBuffer<
@@ -231,25 +231,29 @@ impl<
 
 /// A pool for allocating and recycling aligned buffers.
 pub struct AlignedBufferPool<
-	P: BufferRetentionPolicy,
-	const ALIGNMENT: usize,
+	P: BufferRetentionPolicy = RetainAllRetentionPolicy,
+	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
 	A: Allocator + Clone = Global,
 > {
 	inner: Arc<AlignedBufferPoolInner<P, ALIGNMENT, WeakAlignedBufferPool<P, ALIGNMENT, A>, A>>,
-}
-
-impl<P: BufferRetentionPolicy, const ALIGNMENT: usize> AlignedBufferPool<P, ALIGNMENT, Global> {
-	pub fn new(policy: P, capacity: usize) -> Self {
-		Self::new_in(policy, capacity, Global)
-	}
 }
 
 impl<P: BufferRetentionPolicy, const ALIGNMENT: usize> AlignedBufferPool<P, ALIGNMENT, Global>
 where
 	P: Default,
 {
+	pub fn new(capacity: usize) -> Self {
+		Self::with_policy(P::default(), capacity)
+	}
+
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self::with_capacity_in(capacity, Global)
+	}
+}
+
+impl<P: BufferRetentionPolicy, const ALIGNMENT: usize> AlignedBufferPool<P, ALIGNMENT, Global> {
+	pub fn with_policy(policy: P, capacity: usize) -> Self {
+		Self::new_in(policy, capacity, Global)
 	}
 }
 
@@ -292,8 +296,8 @@ impl<P: BufferRetentionPolicy, const ALIGNMENT: usize, A: Allocator + Clone>
 }
 
 pub struct WeakAlignedBufferPool<
-	P: BufferRetentionPolicy,
-	const ALIGNMENT: usize,
+	P: BufferRetentionPolicy = RetainAllRetentionPolicy,
+	const ALIGNMENT: usize = DEFAULT_BUFFER_ALIGNMENT,
 	A: Allocator + Clone = Global,
 > {
 	inner: Weak<AlignedBufferPoolInner<P, ALIGNMENT, WeakAlignedBufferPool<P, ALIGNMENT, A>, A>>,
