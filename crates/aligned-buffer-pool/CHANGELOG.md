@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0](https://github.com/YoloDev/rstml-component/compare/0.1.1..0.2.0) - 2024-11-03
+
+### ✨ Features
+
+- Access helpers on pooled validator - ([72b2e80](https://github.com/YoloDev/rstml-component/commit/72b2e80a7d0cd0e36ae735e325bf2c388185b52e))
+
+### 🔨 Chore
+
+- Add test - ([8d0f994](https://github.com/YoloDev/rstml-component/commit/8d0f994d277c4054db70e4c3e4e7462b553c3a82))
+
 ## [0.1.1](https://github.com/YoloDev/rstml-component/compare/0.1.0..0.1.1) - 2024-11-03
 
 ### 🔨 Chore
