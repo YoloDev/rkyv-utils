@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0](https://github.com/YoloDev/rstml-component/compare/0.1.0..0.2.0) - 2024-11-03
+
+### ✨ Features
+
+- BufMut with custom allocator - ([4a86774](https://github.com/YoloDev/rstml-component/commit/4a86774095017a6a88a761a89b19b35057219f64))
+
 ## [0.1.0](https://github.com/YoloDev/rstml-component/compare/0.0.9..0.1.0) - 2024-11-02
 
 ### ✨ Features
