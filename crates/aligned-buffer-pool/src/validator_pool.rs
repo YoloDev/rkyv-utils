@@ -2,7 +2,12 @@ mod shared;
 
 use self::shared::SharedValidator;
 use crossbeam_queue::ArrayQueue;
-use rkyv::validation::{archive::ArchiveValidator, ArchiveContext, SharedContext};
+use rkyv::{
+	bytecheck::CheckBytes,
+	rancor::{Fallible, Source, Strategy},
+	validation::{archive::ArchiveValidator, ArchiveContext, SharedContext},
+	Portable,
+};
 use std::{
 	any::TypeId,
 	mem,
@@ -47,6 +52,22 @@ impl ValidatorPool {
 			shared,
 		}
 	}
+
+	pub fn access<'b, T, E>(&mut self, bytes: &'b [u8]) -> Result<&'b T, E>
+	where
+		T: Portable + for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
+		E: Fallible + Source,
+	{
+		rkyv::api::access_with_context(bytes, &mut self.validator(bytes))
+	}
+
+	pub fn access_pos<'b, T, E>(&mut self, bytes: &'b [u8], pos: usize) -> Result<&'b T, E>
+	where
+		T: Portable + for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
+		E: Fallible + Source,
+	{
+		rkyv::api::access_pos_with_context(bytes, pos, &mut self.validator(bytes))
+	}
 }
 
 #[derive(Debug)]
@@ -54,6 +75,24 @@ pub struct PooledValidator<'a> {
 	pool_ref: Weak<Inner>,
 	archive: ArchiveValidator<'a>,
 	shared: SharedValidator,
+}
+
+impl<'a> PooledValidator<'a> {
+	pub fn access<'b, T, E>(&mut self, bytes: &'b [u8]) -> Result<&'b T, E>
+	where
+		T: Portable + CheckBytes<Strategy<PooledValidator<'a>, E>>,
+		E: Fallible + Source,
+	{
+		rkyv::api::access_with_context(bytes, self)
+	}
+
+	pub fn access_pos<'b, T, E>(&mut self, bytes: &'b [u8], pos: usize) -> Result<&'b T, E>
+	where
+		T: Portable + CheckBytes<Strategy<PooledValidator<'a>, E>>,
+		E: Fallible + Source,
+	{
+		rkyv::api::access_pos_with_context(bytes, pos, self)
+	}
 }
 
 impl<'a> Drop for PooledValidator<'a> {
