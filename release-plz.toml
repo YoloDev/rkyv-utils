@@ -1,2 +1,3 @@
 [workspace]
 changelog_config = "cliff.toml"
+features_always_increment_minor = true
