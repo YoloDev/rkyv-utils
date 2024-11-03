@@ -1,6 +1,6 @@
 [package]
 name = "rkyv-owned-archive"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Helpers for having owned Archived types in rkyv."
 license = "MIT"
@@ -12,11 +12,11 @@ keywords = ["buffer", "rkyv", "bytes"]
 
 [dependencies]
 aligned-buffer = { version = "0.2.0", path = "../aligned-buffer", default-features = false, features = ["rkyv"] }
-aligned-buffer-pool = { version = "0.1.1", path = "../aligned-buffer-pool", default-features = false, optional = true, features = ["rkyv"] }
+aligned-buffer-pool = { version = "0.2.0", path = "../aligned-buffer-pool", default-features = false, optional = true, features = ["rkyv"] }
 rkyv = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
-aligned-buffer-pool = { version = "0.1.1", path = "../aligned-buffer-pool", default-features = false, features = ["rkyv"] }
+aligned-buffer-pool = { version = "0.2.0", path = "../aligned-buffer-pool", default-features = false, features = ["rkyv"] }
 
 [features]
 default = ["bytecheck"]
