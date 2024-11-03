@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.10](https://github.com/YoloDev/rstml-component/compare/0.0.9..0.0.10) - 2024-11-03
+
+### 🔨 Chore
+
+- Updated the following local packages: aligned-buffer-pool, aligned-buffer-pool - ([0000000](https://github.com/YoloDev/rstml-component/commit/0000000))
+
 ## [0.0.9](https://github.com/YoloDev/rstml-component/compare/0.0.8..0.0.9) - 2024-11-02
 
 ### ✨ Features

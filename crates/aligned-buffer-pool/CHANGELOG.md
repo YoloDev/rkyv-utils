@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.8](https://github.com/YoloDev/rstml-component/compare/0.0.7..0.0.8) - 2024-11-03
+
+### ✨ Features
+
+- Better constructors - ([6f0a917](https://github.com/YoloDev/rstml-component/commit/6f0a9175d1e307b3f61a9641d071560ead07edd5))
+
 ## [0.0.7](https://github.com/YoloDev/rstml-component/compare/0.0.6..0.0.7) - 2024-11-02
 
 ### ✨ Features

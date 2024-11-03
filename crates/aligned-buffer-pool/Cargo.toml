@@ -1,6 +1,6 @@
 [package]
 name = "aligned-buffer-pool"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2021"
 description = "A buffer-pool with controllable alignment."
 license = "MIT"
