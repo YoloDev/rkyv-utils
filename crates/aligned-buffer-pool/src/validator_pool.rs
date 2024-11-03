@@ -53,7 +53,7 @@ impl ValidatorPool {
 		}
 	}
 
-	pub fn access<'b, T, E>(&mut self, bytes: &'b [u8]) -> Result<&'b T, E>
+	pub fn access<'b, T, E>(&self, bytes: &'b [u8]) -> Result<&'b T, E>
 	where
 		T: Portable + for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
 		E: Source,
@@ -61,7 +61,7 @@ impl ValidatorPool {
 		rkyv::api::access_with_context(bytes, &mut self.validator(bytes))
 	}
 
-	pub fn access_pos<'b, T, E>(&mut self, bytes: &'b [u8], pos: usize) -> Result<&'b T, E>
+	pub fn access_pos<'b, T, E>(&self, bytes: &'b [u8], pos: usize) -> Result<&'b T, E>
 	where
 		T: Portable + for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
 		E: Source,
