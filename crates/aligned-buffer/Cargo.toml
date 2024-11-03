@@ -1,6 +1,6 @@
 [package]
 name = "aligned-buffer"
-version = "0.0.10"
+version = "0.1.0"
 edition = "2021"
 description = "A buffer with controllable alignment, that can be sealed and shared by reference count."
 license = "MIT"
