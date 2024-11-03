@@ -4,7 +4,7 @@ use self::shared::SharedValidator;
 use crossbeam_queue::ArrayQueue;
 use rkyv::{
 	bytecheck::CheckBytes,
-	rancor::{Fallible, Source, Strategy},
+	rancor::{Source, Strategy},
 	validation::{archive::ArchiveValidator, ArchiveContext, SharedContext},
 	Portable,
 };
@@ -56,7 +56,7 @@ impl ValidatorPool {
 	pub fn access<'b, T, E>(&mut self, bytes: &'b [u8]) -> Result<&'b T, E>
 	where
 		T: Portable + for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
-		E: Fallible + Source,
+		E: Source,
 	{
 		rkyv::api::access_with_context(bytes, &mut self.validator(bytes))
 	}
@@ -64,7 +64,7 @@ impl ValidatorPool {
 	pub fn access_pos<'b, T, E>(&mut self, bytes: &'b [u8], pos: usize) -> Result<&'b T, E>
 	where
 		T: Portable + for<'a> CheckBytes<Strategy<PooledValidator<'a>, E>>,
-		E: Fallible + Source,
+		E: Source,
 	{
 		rkyv::api::access_pos_with_context(bytes, pos, &mut self.validator(bytes))
 	}
@@ -81,7 +81,7 @@ impl<'a> PooledValidator<'a> {
 	pub fn access<'b, T, E>(&mut self, bytes: &'b [u8]) -> Result<&'b T, E>
 	where
 		T: Portable + CheckBytes<Strategy<PooledValidator<'a>, E>>,
-		E: Fallible + Source,
+		E: Source,
 	{
 		rkyv::api::access_with_context(bytes, self)
 	}
@@ -89,7 +89,7 @@ impl<'a> PooledValidator<'a> {
 	pub fn access_pos<'b, T, E>(&mut self, bytes: &'b [u8], pos: usize) -> Result<&'b T, E>
 	where
 		T: Portable + CheckBytes<Strategy<PooledValidator<'a>, E>>,
-		E: Fallible + Source,
+		E: Source,
 	{
 		rkyv::api::access_pos_with_context(bytes, pos, self)
 	}
@@ -144,5 +144,37 @@ where
 	#[inline]
 	fn finish_shared(&mut self, address: usize, type_id: TypeId) -> Result<(), E> {
 		self.shared.finish_shared(address, type_id)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rkyv::{rancor::BoxedError, Archive, Serialize};
+
+	#[derive(Archive, Serialize)]
+	struct Test {
+		foo: u32,
+		bar: u64,
+		baz: String,
+	}
+
+	#[test]
+	fn access_helper() {
+		let bytes = rkyv::to_bytes::<BoxedError>(&Test {
+			foo: 42,
+			bar: 69,
+			baz: "hello".to_string(),
+		})
+		.expect("to_bytes");
+
+		let mut pool = ValidatorPool::new(1);
+		let test = pool
+			.access::<ArchivedTest, BoxedError>(&bytes)
+			.expect("access");
+
+		assert_eq!(test.foo, 42);
+		assert_eq!(test.bar, 69);
+		assert_eq!(test.baz, "hello");
 	}
 }
