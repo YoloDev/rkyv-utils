@@ -1,8 +1,10 @@
-use crate::{raw::RawAlignedBuffer, UniqueAlignedBuffer};
+use crate::{alloc::BufferAllocator, raw::RawAlignedBuffer, UniqueAlignedBuffer};
 use bytes::{buf::UninitSlice, Buf, BufMut};
 use std::ptr;
 
-unsafe impl<const ALIGNMENT: usize> BufMut for UniqueAlignedBuffer<ALIGNMENT> {
+unsafe impl<const ALIGNMENT: usize, A: BufferAllocator<ALIGNMENT>> BufMut
+	for UniqueAlignedBuffer<ALIGNMENT, A>
+{
 	#[inline]
 	fn remaining_mut(&self) -> usize {
 		RawAlignedBuffer::<ALIGNMENT>::MAX_CAPACITY - self.len()
