@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0](https://github.com/YoloDev/rstml-component/compare/0.2.0..0.3.0) - 2024-11-03
+
+### ✨ Features
+
+- Fix validator-pool access methods - ([f72f3b4](https://github.com/YoloDev/rstml-component/commit/f72f3b4c646653f7a9ea15715c783a31887ac982))
+
 ## [0.2.0](https://github.com/YoloDev/rstml-component/compare/0.1.1..0.2.0) - 2024-11-03
 
 ### ✨ Features
