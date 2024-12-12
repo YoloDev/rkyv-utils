@@ -39,7 +39,7 @@ jobs:
 
       - name: Run sccache-cache
         if: github.repository == 'YoloDev/rkyv-utils'
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Configure sccache
         if: github.repository == 'YoloDev/rkyv-utils'
@@ -100,7 +100,7 @@ jobs:
 
       - name: Run sccache-cache
         if: github.repository == 'YoloDev/rkyv-utils'
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Configure sccache
         if: github.repository == 'YoloDev/rkyv-utils'
