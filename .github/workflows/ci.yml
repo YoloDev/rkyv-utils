@@ -35,12 +35,12 @@ jobs:
           git config --global core.symlinks true
           git config --global fetch.parallel 32
 
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Run sccache-cache
         if: github.repository == 'YoloDev/rkyv-utils'
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
       - name: Configure sccache
         if: github.repository == 'YoloDev/rkyv-utils'
@@ -64,7 +64,7 @@ jobs:
           SCCACHE_ACCESS_KEY_ID: ${{ secrets.SCCACHE_ACCESS_KEY_ID }}
           SCCACHE_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_SECRET_ACCESS_KEY }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v0
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -98,18 +98,18 @@ jobs:
           git config --global core.symlinks true
           git config --global fetch.parallel 32
 
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@be39649afda95dbf70f87cce95f68b8d5797b296 # nightly
         with:
           components: miri
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v0
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # cache-provider: buildjet
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6 # v2.0.0
         name: Setup just
 
       - name: Run tests
